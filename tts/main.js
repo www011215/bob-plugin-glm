@@ -71,54 +71,155 @@ function splitText(text, max) {
     return chunks;
 }
 
-function ascii(d, offset, n) {
+// 音频一律经 $data.toBase64() 取出、在 JS 里解析：不依赖 readUInt8 / length / subData 等方法，
+// 这些在不同 Bob 版本里的表现与文档不一致
+var B64_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+var B64_INDEX = (function () {
+    var table = [];
+    for (var i = 0; i < 128; i++) table.push(-1);
+    for (var j = 0; j < 64; j++) table[B64_CHARS.charCodeAt(j)] = j;
+    table[45] = 62; // '-'（URL-safe 变体）
+    table[95] = 63; // '_'
+    return table;
+})();
+
+function base64ByteLength(b64) {
+    var len = b64.length;
+    var pad = b64.charAt(len - 1) === '=' ? (b64.charAt(len - 2) === '=' ? 2 : 1) : 0;
+    return Math.floor(len * 3 / 4) - pad;
+}
+
+// 解码 base64；给了 maxBytes 时只解开头那么多字节
+function base64ToBytes(b64, maxBytes) {
+    var total = base64ByteLength(b64);
+    var n = maxBytes === undefined ? total : Math.min(total, maxBytes);
+    var out = new Uint8Array(Math.max(n, 0));
+    var o = 0;
+    var buf = 0;
+    var bits = 0;
+    for (var i = 0; i < b64.length && o < n; i++) {
+        var c = b64.charCodeAt(i);
+        var v = c < 128 ? B64_INDEX[c] : -1;
+        if (v < 0) continue;
+        buf = ((buf << 6) | v) & 0xffff;
+        bits += 6;
+        if (bits >= 8) {
+            bits -= 8;
+            out[o++] = (buf >> bits) & 255;
+        }
+    }
+    return o === out.length ? out : out.subarray(0, o);
+}
+
+function bytesToBase64(bytes) {
+    var parts = [];
     var s = '';
-    for (var i = 0; i < n; i++) s += String.fromCharCode(d.readUInt8(offset + i));
+    var len = bytes.length;
+    for (var i = 0; i < len; i += 3) {
+        var n = (bytes[i] << 16) | ((i + 1 < len ? bytes[i + 1] : 0) << 8) | (i + 2 < len ? bytes[i + 2] : 0);
+        s += B64_CHARS.charAt((n >> 18) & 63) + B64_CHARS.charAt((n >> 12) & 63) +
+            (i + 1 < len ? B64_CHARS.charAt((n >> 6) & 63) : '=') +
+            (i + 2 < len ? B64_CHARS.charAt(n & 63) : '=');
+        if (s.length >= 16384) {
+            parts.push(s);
+            s = '';
+        }
+    }
+    parts.push(s);
+    return parts.join('');
+}
+
+function ascii(b, offset, n) {
+    var s = '';
+    for (var i = 0; i < n; i++) s += String.fromCharCode(b[offset + i]);
     return s;
 }
 
-function readU32(d, offset) {
-    return (d.readUInt8(offset) | (d.readUInt8(offset + 1) << 8) |
-        (d.readUInt8(offset + 2) << 16) | (d.readUInt8(offset + 3) << 24)) >>> 0;
+function readU32(b, offset) {
+    return (b[offset] | (b[offset + 1] << 8) | (b[offset + 2] << 16) | (b[offset + 3] << 24)) >>> 0;
 }
 
-function writeU32(d, offset, value) {
-    for (var i = 0; i < 4; i++) d.writeUInt8((value >>> (8 * i)) & 0xff, offset + i);
+function writeU32(b, offset, value) {
+    for (var i = 0; i < 4; i++) b[offset + i] = (value >>> (8 * i)) & 0xff;
 }
 
-function isWav(d) {
-    return d && d.length >= 12 && ascii(d, 0, 4) === 'RIFF' && ascii(d, 8, 4) === 'WAVE';
+function isWav(b) {
+    return b.length >= 12 && ascii(b, 0, 4) === 'RIFF' && ascii(b, 8, 4) === 'WAVE';
 }
 
-// 定位 data 段：返回负载起点、长度字段位置与负载长度
-function parseWav(d) {
+// 在 b（可以只是开头一段）里定位 data 段；total 为整段音频的真实字节数
+function parseWav(b, total) {
     var offset = 12;
-    while (offset + 8 <= d.length) {
-        var id = ascii(d, offset, 4);
-        var size = readU32(d, offset + 4);
+    while (offset + 8 <= b.length) {
+        var id = ascii(b, offset, 4);
+        var size = readU32(b, offset + 4);
         if (id === 'data') {
-            var available = d.length - (offset + 8);
+            var available = total - (offset + 8);
             var dataSize = (size === 0 || size === 0xffffffff || size > available) ? available : size;
-            return { dataOffset: offset + 8, dataSizeOffset: offset + 4, dataSize: dataSize };
+            return { dataOffset: offset + 8, dataSize: dataSize, declared: size };
         }
         offset += 8 + size + (size & 1);
     }
     throw errorObj('api', '返回的 WAV 音频中找不到 data 段');
 }
 
-// 多段 WAV（同一接口同一参数，格式一致）拼成一个：沿用第一段的文件头，拼接各段 PCM 负载并修正长度字段
-function concatWav(parts) {
-    var first = parseWav(parts[0]);
-    var out = parts[0].subData(0, first.dataOffset + first.dataSize);
-    var total = first.dataSize;
-    for (var i = 1; i < parts.length; i++) {
-        var p = parseWav(parts[i]);
-        out.appendData(parts[i].subData(p.dataOffset, p.dataOffset + p.dataSize));
-        total += p.dataSize;
+// 各段 WAV（base64）合成一个：单段且长度字段正常时原样返回；
+// 否则整段解码，沿用第一段的文件头、拼接各段 PCM 负载、修正长度字段并去掉 data 之后的尾段
+function mergeWav(list) {
+    if (list.length === 1) {
+        var total = base64ByteLength(list[0]);
+        var head = base64ToBytes(list[0], 65536);
+        var info = parseWav(head, total);
+        if (info.declared === info.dataSize && info.dataOffset + info.dataSize === total && readU32(head, 4) === total - 8) {
+            return list[0];
+        }
     }
-    writeU32(out, first.dataSizeOffset, total);
+    var parts = [];
+    var payload = 0;
+    for (var i = 0; i < list.length; i++) {
+        var bytes = base64ToBytes(list[i]);
+        var p = parseWav(bytes, bytes.length);
+        parts.push({ bytes: bytes, info: p });
+        payload += p.dataSize;
+    }
+    var headerLen = parts[0].info.dataOffset;
+    var out = new Uint8Array(headerLen + payload);
+    out.set(parts[0].bytes.subarray(0, headerLen), 0);
+    var pos = headerLen;
+    for (var j = 0; j < parts.length; j++) {
+        var q = parts[j];
+        out.set(q.bytes.subarray(q.info.dataOffset, q.info.dataOffset + q.info.dataSize), pos);
+        pos += q.info.dataSize;
+    }
+    writeU32(out, headerLen - 4, payload);
     writeU32(out, 4, out.length - 8);
-    return out;
+    return bytesToBase64(out);
+}
+
+function contentType(resp) {
+    var r = resp && resp.response;
+    var headers = r && r.headers;
+    if (headers) {
+        for (var k in headers) {
+            if (String(k).toLowerCase() === 'content-type') return String(headers[k]);
+        }
+    }
+    return String((r && (r.MIMEType || r.mimeType)) || '未知');
+}
+
+// 返回的不是 WAV 时，把类型、长度和开头字节都报出来，方便排查
+function describeResponse(resp, b64) {
+    var parts = ['类型 ' + contentType(resp)];
+    var textual = true;
+    if (b64) {
+        var head = base64ToBytes(b64, 16);
+        var hex = [];
+        for (var i = 0; i < head.length; i++) hex.push((head[i] < 16 ? '0' : '') + head[i].toString(16));
+        parts.push(base64ByteLength(b64) + ' 字节');
+        parts.push('开头 ' + hex.join(' '));
+        textual = head.length > 0 && (head[0] === 0x7b || head[0] === 0x5b || head[0] === 0x3c);
+    }
+    return parts.join('，') + (textual ? '\n' + describeBody(resp) : '');
 }
 
 function describeBody(resp) {
@@ -173,11 +274,22 @@ function requestSpeech(text, done) {
                 done(errorObj('network', 'Http Request Error\nHttp Status: ' + (statusCode || '未知') + '\n' + describeBody(resp)));
                 return;
             }
-            if (!isWav(resp.rawData)) {
-                done(errorObj('api', '接口未返回 WAV 音频：' + describeBody(resp)));
+            var b64 = '';
+            try {
+                var raw = resp && resp.rawData;
+                if (raw && typeof raw.toBase64 === 'function') b64 = String(raw.toBase64() || '').replace(/\s+/g, '');
+            } catch (e) {
+                // 取不到就当没有数据，下面统一报错
+            }
+            if (!b64) {
+                done(errorObj('api', '接口没有返回音频数据（' + describeResponse(resp, '') + '）'));
                 return;
             }
-            done(null, resp.rawData);
+            if (!isWav(base64ToBytes(b64, 16))) {
+                done(errorObj('api', '接口返回的不是 WAV 音频（' + describeResponse(resp, b64) + '）'));
+                return;
+            }
+            done(null, b64);
         }
     });
 }
@@ -196,12 +308,12 @@ function synthesize(text, completion) {
     function next(i) {
         if (i >= chunks.length) {
             try {
-                // 单段也过一遍 concatWav：顺带修正流式头（长度字段为 0）并去掉 data 后的尾段
-                var audio = concatWav(parts);
+                // 单段也过一遍 mergeWav：长度字段异常（流式头）时顺带修正
+                var audio = mergeWav(parts);
                 finish({
                     result: {
                         type: 'base64',
-                        value: audio.toBase64(),
+                        value: audio,
                         raw: { model: MODEL, voice: resolveVoice(), format: 'wav', chunks: chunks.length }
                     }
                 });

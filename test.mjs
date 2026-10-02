@@ -353,7 +353,27 @@ console.log('== tts：合成 ==');
     check('后半段无断点时退回到最近的句号', captured[0].body.input === '前半句。', captured[0].body.input.slice(0, 10));
 }
 
+{
+    // 场景：Bob 的 $data 只有 toBase64 可靠（readUInt8 / length 不按文档工作），data 被置成 {} → 仍能正常朗读
+    const wav = makeWav(Buffer.from([7, 8, 9, 10]), false);
+    const quirky = { toBase64: () => wav.toString('base64'), readUInt8: () => undefined };
+    const { out } = await runTts({ apiKey: 'k' }, '你好', () => ({ response: { statusCode: 200, headers: { 'Content-Type': 'audio/wav' } }, data: {}, rawData: quirky }));
+    check('只靠 toBase64 也能取到 WAV', out.result && out.result.value === wav.toString('base64'), out);
+    const wrapped = { toBase64: () => wav.toString('base64').replace(/(.{8})/g, '$1\n') };
+    const { out: out2 } = await runTts({ apiKey: 'k' }, '你好', () => ({ response: { statusCode: 200 }, data: {}, rawData: wrapped }));
+    check('base64 带换行也能解析', out2.result && out2.result.value === wav.toString('base64'), out2);
+}
+
 console.log('== tts：错误处理 ==');
+{
+    const pcm = Buffer.from([1, 0, 2, 0, 3, 0, 4, 0]);
+    const { out } = await runTts({ apiKey: 'k' }, '你好', () => ({ response: { statusCode: 200, headers: { 'content-type': 'audio/pcm' } }, data: {}, rawData: fakeData(pcm) }));
+    check('返回非 WAV 二进制时报出类型 / 长度 / 开头字节', out.error && out.error.type === 'api' && out.error.message.includes('audio/pcm') && out.error.message.includes('8 字节') && out.error.message.includes('01 00 02 00'), out.error);
+    const { out: o2 } = await runTts({ apiKey: 'k' }, '你好', () => ({ response: { statusCode: 200 }, data: {}, rawData: fakeData(Buffer.from('{}')) }));
+    check('返回 {} 时报出原文', o2.error && o2.error.message.includes('2 字节') && o2.error.message.includes('{}'), o2.error);
+    const { out: o3 } = await runTts({ apiKey: 'k' }, '你好', () => ({ response: { statusCode: 200 }, data: {} }));
+    check('没有 rawData 时报「没有返回音频数据」', o3.error && o3.error.message.includes('没有返回音频数据'), o3.error);
+}
 {
     const { captured, out } = await runTts({ apiKey: 'k' }, '字'.repeat(3001), () => wavResp(makeWav(Buffer.from([0, 0]), false)));
     check('超过 3000 字直接提示、不发请求', out.error && out.error.type === 'param' && out.error.message.includes('3000') && captured.length === 0, out.error);

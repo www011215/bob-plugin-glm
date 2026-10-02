@@ -1,6 +1,6 @@
 {
     "identifier": "com.www011215.bob.glm-tts",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "category": "tts",
     "name": "智谱 GLM 语音",
     "summary": "使用智谱 GLM-TTS（open.bigmodel.cn）朗读文本，支持中文与中英混读、多种系统音色与复刻音色；超过 1024 字自动分段合成。同仓库的识别插件基于 MinatoHikari/bob-llmtranslation-ocr 修改",
