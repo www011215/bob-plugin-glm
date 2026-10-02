@@ -4,6 +4,7 @@
 set -euo pipefail
 
 RAW="https://raw.githubusercontent.com/www011215/bob-plugin-glm/main"
+API="https://api.github.com/repos/www011215/bob-plugin-glm/contents"
 TARGET="${1:-ocr}"
 
 case "$TARGET" in
@@ -18,8 +19,11 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
 for plugin in $PLUGINS; do
-    if [ "$plugin" = "ocr" ]; then cast_url="$RAW/appcast.json"; else cast_url="$RAW/$plugin/appcast.json"; fi
-    curl -fsSL "$cast_url" -o "$TMP/$plugin.json"
+    if [ "$plugin" = "ocr" ]; then cast_path="appcast.json"; else cast_path="$plugin/appcast.json"; fi
+    # 优先走 GitHub API（只缓存 60 秒）；raw.githubusercontent.com 的 CDN 会缓存约 5 分钟，刚发版时可能拿到旧版本
+    if ! curl -fsSL -H "Accept: application/vnd.github.raw" "$API/$cast_path" -o "$TMP/$plugin.json" 2>/dev/null; then
+        curl -fsSL "$RAW/$cast_path" -o "$TMP/$plugin.json"
+    fi
     url="$(plutil -extract versions.0.url raw -o - "$TMP/$plugin.json")"
     sha="$(plutil -extract versions.0.sha256 raw -o - "$TMP/$plugin.json")"
     version="$(plutil -extract versions.0.version raw -o - "$TMP/$plugin.json")"
