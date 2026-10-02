@@ -187,8 +187,9 @@ function isZhipuHost(url) {
     return /^https:\/\/(open\.bigmodel\.cn|api\.z\.ai)\//i.test(String(url));
 }
 
+// 地址框里粘贴的是 layout_parsing 完整地址时，对话模型也要能用：先去掉它再补 /chat/completions
 function buildChatUrl(baseUrl) {
-    var base = String(baseUrl).trim().replace(/\/+$/, '');
+    var base = String(baseUrl).trim().replace(/\/+$/, '').replace(/\/layout_parsing$/, '');
     if (/\/chat\/completions$/.test(base)) return base;
     return base + '/chat/completions';
 }

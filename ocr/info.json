@@ -1,6 +1,6 @@
 {
     "identifier": "com.www011215.bob.glm-ocr",
-    "version": "1.2.2",
+    "version": "1.2.3",
     "category": "ocr",
     "name": "智谱 GLM 识别",
     "summary": "基于 MinatoHikari/bob-llmtranslation-ocr 修改。使用智谱 GLM（open.bigmodel.cn / Z.ai）识别图片文字，默认专用 OCR 模型 glm-ocr；也支持 DeepSeek、OpenCode Zen · Go 与任意 OpenAI 兼容视觉接口",
@@ -56,9 +56,9 @@
             "title": "接口地址 (选填，留空用上面选的接口)",
             "textConfig": {
                 "type": "visible",
-                "placeholderText": "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+                "placeholderText": "https://open.bigmodel.cn/api/paas/v4"
             },
-            "desc": "留空就按上面「接口」菜单请求，默认是智谱中国站 https://open.bigmodel.cn/api/paas/v4/chat/completions（glm-ocr 会自动改走同站的 /layout_parsing）。填了则以这里为准，适合本地模型（vLLM、llama-server）或中转；地址会自动补全 /chat/completions。"
+            "desc": "留空就按上面「接口」菜单请求，默认是智谱中国站 https://open.bigmodel.cn/api/paas/v4：glm-ocr 自动走 /layout_parsing，其他视觉模型（如 glm-5.3-flash）走 /chat/completions。也可以直接粘贴这两个完整地址中的任意一个，插件会按模型自动换成对应的那个。本地模型（vLLM、llama-server）或中转也填这里。"
         },
         {
             "identifier": "apiKey",

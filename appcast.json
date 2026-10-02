@@ -2,6 +2,14 @@
   "identifier": "com.www011215.bob.glm-ocr",
   "versions": [
     {
+      "version": "1.2.3",
+      "desc": "接口地址框改为显示基础地址：glm-ocr 自动走 /layout_parsing，其他视觉模型走 /chat/completions；两个完整地址都可以直接粘贴",
+      "sha256": "1be9ee7ade9a09383f7b7f04952d35397c30a92d28225fbd7bc5cd3c154a85de",
+      "url": "https://github.com/www011215/bob-plugin-glm/releases/download/ocr-v1.2.3/glm-ocr-1.2.3.bobplugin",
+      "minBobVersion": "1.8.0",
+      "timestamp": 1790933666595
+    },
+    {
       "version": "1.2.2",
       "desc": "接口地址框显示默认地址 https://open.bigmodel.cn/api/paas/v4/chat/completions，留空即用它",
       "sha256": "56806add7f292d3fdd762ebe9a8f57d78af8d46e6b2ab6495259733599d9adf0",

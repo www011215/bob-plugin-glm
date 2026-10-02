@@ -122,6 +122,15 @@ console.log('== ocr：Markdown → 纯文本回归（QA 发现的问题） ==');
     check('左上角空单元格保留（表头不错列）', md2text('<table><tr><th></th><th>A</th><th>B</th></tr><tr><td>r1</td><td>1</td><td>2</td></tr></table>') === '\tA\tB\nr1\t1\t2');
 }
 
+{
+    // 场景：地址框粘贴的是 layout_parsing 完整地址 → glm-ocr 原样用，对话模型换回 /chat/completions
+    const LP = 'https://open.bigmodel.cn/api/paas/v4/layout_parsing';
+    const a = await runOcr({ customEndpoint: LP, apiKey: 'k', model: 'glm-ocr' }, { md_results: 'x' });
+    check('粘贴 layout_parsing 地址 + glm-ocr', a.req.url === LP, a.req.url);
+    const b = await runOcr({ customEndpoint: LP, apiKey: 'k', model: 'glm-5.3-flash' }, CHAT_OK);
+    check('粘贴 layout_parsing 地址 + 对话模型仍走 chat/completions', b.req.url === 'https://open.bigmodel.cn/api/paas/v4/chat/completions', b.req.url);
+}
+
 console.log('== ocr：视觉对话模型（chat/completions） ==');
 {
     // 场景：截图正文本来就有 Translation: 行（没有模型附加的标签）→ 不截断
