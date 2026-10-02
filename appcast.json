@@ -2,6 +2,14 @@
   "identifier": "com.www011215.bob.glm-ocr",
   "versions": [
     {
+      "version": "1.2.2",
+      "desc": "接口地址框显示默认地址 https://open.bigmodel.cn/api/paas/v4/chat/completions，留空即用它",
+      "sha256": "56806add7f292d3fdd762ebe9a8f57d78af8d46e6b2ab6495259733599d9adf0",
+      "url": "https://github.com/www011215/bob-plugin-glm/releases/download/ocr-v1.2.2/glm-ocr-1.2.2.bobplugin",
+      "minBobVersion": "1.8.0",
+      "timestamp": 1790932980480
+    },
+    {
       "version": "1.2.1",
       "desc": "图标换成 Z.ai 的 Z 标志；设置项增加说明文字",
       "sha256": "89b23c64aa89157802bd88d23e6d01cfc7fc7c1b557924fe9d84e602a0391d3b",
