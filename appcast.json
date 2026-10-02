@@ -1,0 +1,13 @@
+{
+  "identifier": "com.www011215.bob.glm-ocr",
+  "versions": [
+    {
+      "version": "1.2.0",
+      "desc": "首个版本：默认使用智谱专用 OCR 模型 glm-ocr；也支持 GLM 视觉模型、Z.ai、DeepSeek、OpenCode 与自定义 OpenAI 兼容接口",
+      "sha256": "591a345eb552cadfdc8ef472141e54da5ad5e3874dc33c0d24903ae93304c845",
+      "url": "https://github.com/www011215/bob-plugin-glm/releases/download/ocr-v1.2.0/glm-ocr-1.2.0.bobplugin",
+      "minBobVersion": "1.8.0",
+      "timestamp": 1790931266027
+    }
+  ]
+}

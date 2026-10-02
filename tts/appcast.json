@@ -1,0 +1,13 @@
+{
+  "identifier": "com.www011215.bob.glm-tts",
+  "versions": [
+    {
+      "version": "1.0.1",
+      "desc": "首个版本：智谱 GLM-TTS 朗读，7 种系统音色 + 复刻音色，超长文本自动分段合成",
+      "sha256": "ed22170bd2e5f83ffca74a8c7a880bbba14d284b4965edd590541017a42c65cc",
+      "url": "https://github.com/www011215/bob-plugin-glm/releases/download/tts-v1.0.1/glm-tts-1.0.1.bobplugin",
+      "minBobVersion": "1.8.0",
+      "timestamp": 1790931266066
+    }
+  ]
+}
