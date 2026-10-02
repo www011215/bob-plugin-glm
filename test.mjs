@@ -1,5 +1,5 @@
-// Bob 插件冒烟测试：mock $option / $http，验证请求构造与结果解析
-// 运行：bun bob/test.mjs 或 node bob/test.mjs
+// Bob 插件冒烟测试：mock $option / $http / $data，验证请求构造与结果解析
+// 运行：node test.mjs（或 bun test.mjs）
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,457 +18,317 @@ function check(name, cond, extra) {
     }
 }
 
-const PNG_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
-const PNG_BYTES = Array.from(Buffer.from(PNG_B64, 'base64'));
+const read = (p) => readFileSync(path.join(here, p), 'utf8');
 
 // 按 Bob 的 CommonJS 方式加载：注入 exports 对象，入口函数必须挂到 exports 上才能被识别
-function loadWithExports(dir, args) {
-    const script = readFileSync(path.join(here, dir, 'main.js'), 'utf8');
+function load(script, $option, $http) {
     const exportsObj = {};
-    new Function('$option, $http, exports', script)(args[0], args[1], exportsObj);
+    new Function('$option, $http, exports', script)($option, $http, exportsObj);
     return exportsObj;
 }
 
-function makeTranslator($option, $http) {
-    const exportsObj = loadWithExports('translate', [$option, $http]);
-    check('translate: 入口函数已挂载到 exports', typeof exportsObj.translate === 'function' && typeof exportsObj.supportLanguages === 'function', Object.keys(exportsObj));
-    return { supportLanguages: exportsObj.supportLanguages, translate: exportsObj.translate };
-}
+// ======================================================================
+// 识别插件 ocr/
+// ======================================================================
+const PNG_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+const DATA_URL = 'data:image/png;base64,' + PNG_B64;
+const OCR_SCRIPT = read('ocr/main.js');
+const OCR_INFO = JSON.parse(read('ocr/info.json'));
 
-function makeOcr($option, $http) {
-    const exportsObj = loadWithExports('ocr', [$option, $http]);
-    check('ocr: 入口函数已挂载到 exports', typeof exportsObj.ocr === 'function' && typeof exportsObj.supportLanguages === 'function', Object.keys(exportsObj));
-    return { supportLanguages: exportsObj.supportLanguages, ocr: exportsObj.ocr };
-}
-
-function makeHttp(data, capture) {
+function makeHttp(data, capture, statusCode = 200) {
     return {
         request: async (options) => {
             if (capture) capture.push(options);
             if (typeof data === 'function') return data(options);
-            return { response: { statusCode: 200 }, data };
+            return { response: { statusCode }, data };
         }
     };
 }
 
-const CHOICES_OK = { choices: [{ message: { content: '你好，世界' } }] };
-
-// ============ translate 插件 ============
-console.log('== bob translate ==');
-{
-    // supportLanguages 不依赖配置
-    const t = makeTranslator({}, makeHttp({}, []));
-    const langs = t.supportLanguages();
-    check('supportLanguages 含 zh-Hans/en/ja', langs.includes('zh-Hans') && langs.includes('en') && langs.includes('ja'));
-}
-{
-    // 场景：Z.ai 端点 + 默认模型，走 query.onCompletion
+async function runOcr($option, data, statusCode) {
     const captured = [];
-    const $option = { endpoint: 'zai', apiKey: 'sk-zai' };
-    const $http = makeHttp(CHOICES_OK, captured);
-    const t = makeTranslator($option, $http);
+    const o = load(OCR_SCRIPT, $option, makeHttp(data, captured, statusCode));
+    check('ocr 入口函数已挂载到 exports', typeof o.ocr === 'function' && typeof o.supportLanguages === 'function', Object.keys(o));
     const out = await new Promise((resolve) => {
-        t.translate({ text: 'hello', detectFrom: 'en', detectTo: 'zh-Hans', onCompletion: resolve }, null);
+        o.ocr({ image: { toBase64: () => PNG_B64 }, detectFrom: 'zh-Hans', onCompletion: resolve }, null);
     });
-    const req = captured[0];
-    check('Z.ai URL 正确', req.url === 'https://api.z.ai/api/paas/v4/chat/completions', req.url);
-    check('默认模型 glm-4.7', req.body.model === 'glm-4.7', req.body.model);
-    check('GLM 发送 thinking disabled', req.body.thinking && req.body.thinking.type === 'disabled', req.body.thinking);
-    check('Bearer 认证头', req.header.Authorization === 'Bearer sk-zai');
-    check('目标语言映射英文名', req.body.messages[1].content.includes('Simplified Chinese'), req.body.messages[1].content);
-    check('onCompletion 返回 toParagraphs', out.result && out.result.toParagraphs[0] === '你好，世界', out);
-    check('result.from/to 为 Bob 语言代码', out.result.from === 'en' && out.result.to === 'zh-Hans', out.result);
-}
-{
-    // 场景：DeepSeek 端点 + 自定义模型，走 completion 参数回调
-    const captured = [];
-    const $option = { endpoint: 'deepseek', apiKey: 'sk-ds', model: 'deepseek-reasoner' };
-    const $http = makeHttp(CHOICES_OK, captured);
-    const t = makeTranslator($option, $http);
-    const out = await new Promise((resolve) => {
-        t.translate({ text: '你好', detectFrom: 'zh-Hans', detectTo: 'en' }, resolve);
-    });
-    const req = captured[0];
-    check('DeepSeek URL 正确', req.url === 'https://api.deepseek.com/chat/completions', req.url);
-    check('自定义模型生效', req.body.model === 'deepseek-reasoner', req.body.model);
-    check('非 GLM 不发送 thinking', !('thinking' in req.body));
-    check('completion 参数回调可用', out.result && out.result.toParagraphs[0] === '你好，世界', out);
-    check('双语提示词', req.body.messages[1].content.startsWith('Translate from Simplified Chinese into English:'), req.body.messages[1].content);
-}
-{
-    // 场景：智谱中国站 Coding Plan 端点
-    const captured = [];
-    const $option = { endpoint: 'bigmodel_coding', apiKey: 'k' };
-    const $http = makeHttp(CHOICES_OK, captured);
-    const t = makeTranslator($option, $http);
-    const out = await new Promise((resolve) => {
-        t.translate({ text: 'x', detectFrom: 'en', detectTo: 'zh-Hans' }, resolve);
-    });
-    check('智谱中国站 Coding Plan URL', captured[0].url === 'https://open.bigmodel.cn/api/coding/paas/v4/chat/completions', captured[0].url);
-    check('首尾引号被去除', out.result.toParagraphs[0] === '你好，世界', out.result);
-}
-{
-    // 场景：OpenCode Zen 端点 + 默认模型
-    const captured = [];
-    const $option = { endpoint: 'zen', apiKey: 'sk-oc' };
-    const $http = makeHttp(CHOICES_OK, captured);
-    const t = makeTranslator($option, $http);
-    await t.translate({ text: 'x', detectFrom: 'en', detectTo: 'zh-Hans', onCompletion: () => {} }, null);
-    check('OpenCode Zen URL 正确', captured[0].url === 'https://opencode.ai/zen/v1/chat/completions', captured[0].url);
-    check('Zen 默认模型 glm-5.3-flash', captured[0].body.model === 'glm-5.3-flash', captured[0].body.model);
-    check('Zen GLM 发送 thinking disabled', captured[0].body.thinking && captured[0].body.thinking.type === 'disabled', captured[0].body.thinking);
-}
-{
-    // 场景：OpenCode Go 订阅端点 + 自定义模型
-    const captured = [];
-    const $option = { endpoint: 'go', apiKey: 'sk-go', model: 'deepseek-v4.1-flash' };
-    const $http = makeHttp(CHOICES_OK, captured);
-    const t = makeTranslator($option, $http);
-    await t.translate({ text: 'x', detectFrom: 'en', detectTo: 'zh-Hans', onCompletion: () => {} }, null);
-    check('OpenCode Go URL 正确', captured[0].url === 'https://opencode.ai/zen/go/v1/chat/completions', captured[0].url);
-    check('Go 自定义模型生效', captured[0].body.model === 'deepseek-v4.1-flash', captured[0].body.model);
-    check('Go 非 GLM 模型不发送 thinking', !('thinking' in captured[0].body));
-}
-{
-    // 场景：自定义端点优先
-    const captured = [];
-    const $option = { endpoint: 'zai', apiKey: 'k', customEndpoint: 'http://127.0.0.1:8080/v1', model: 'test' };
-    const $http = makeHttp(CHOICES_OK, captured);
-    const t = makeTranslator($option, $http);
-    await t.translate({ text: 'x', detectFrom: 'en', detectTo: 'zh-Hans', onCompletion: () => {} }, null);
-    check('自定义端点优先', captured[0].url === 'http://127.0.0.1:8080/v1/chat/completions', captured[0].url);
-}
-{
-    // 场景：自定义接口必须填模型
-    let err = null;
-    const $option = { endpoint: 'custom', customEndpoint: 'http://a.b/v1' };
-    const $http = makeHttp(CHOICES_OK, []);
-    const t = makeTranslator($option, $http);
-    await t.translate({ text: 'x', detectFrom: 'en', detectTo: 'zh-Hans', onCompletion: (o) => (err = o) }, null);
-    check('自定义接口必须填模型', err && err.error && err.error.type === 'param' && err.error.message.includes('模型名称'), err);
-}
-{
-    // 场景：缺 API Key → secretKey
-    let err = null;
-    const $option = { endpoint: 'zai' };
-    const $http = makeHttp(CHOICES_OK, []);
-    const t = makeTranslator($option, $http);
-    await t.translate({ text: 'x', detectFrom: 'en', detectTo: 'zh-Hans', onCompletion: (o) => (err = o) }, null);
-    check('缺 API Key 报 secretKey', err && err.error && err.error.type === 'secretKey', err);
-}
-{
-    // 场景：HTTP 401 → network
-    let err = null;
-    const $option = { endpoint: 'zai', apiKey: 'k' };
-    const $http = { request: async () => ({ response: { statusCode: 401 }, data: { error: { message: 'invalid key' } } }) };
-    const t = makeTranslator($option, $http);
-    await t.translate({ text: 'x', detectFrom: 'en', detectTo: 'zh-Hans', onCompletion: (o) => (err = o) }, null);
-    check('HTTP 401 报 network', err && err.error && err.error.type === 'network' && err.error.message.includes('401'), err);
-}
-{
-    // 场景：首尾引号去除
-    const $option = { endpoint: 'zai', apiKey: 'k' };
-    const $http = makeHttp({ choices: [{ message: { content: '"清理后"' } }] }, []);
-    const t = makeTranslator($option, $http);
-    const out = await new Promise((resolve) => t.translate({ text: 'x', detectFrom: 'en', detectTo: 'zh-Hans' }, resolve));
-    check('首尾引号被去除', out.result.toParagraphs[0] === '清理后', out.result);
+    return { req: captured[0], out, lines: out.result ? out.result.texts.map((t) => t.text) : null };
 }
 
-// ============ ocr 插件 ============
-console.log('== bob ocr ==');
+const CHAT_OK = { choices: [{ message: { content: '第一行\n第二行' } }] };
+
+console.log('== ocr：配置一致性 ==');
 {
-    const captured = [];
-    const $option = { endpoint: 'zai', apiKey: 'sk-zai' };
-    const $http = makeHttp({ choices: [{ message: { content: '第一行\n第二行' } }] }, captured);
-    const o = makeOcr($option, $http);
-    check('ocr supportLanguages 含 zh-Hans', o.supportLanguages().includes('zh-Hans'));
-    const image = { toBase64: () => PNG_B64 };
-    const out = await new Promise((resolve) => o.ocr({ image, detectFrom: 'en', onCompletion: resolve }, null));
-    const req = captured[0];
+    const consts = new Function('$option, $http, exports', OCR_SCRIPT + '\nreturn { ENDPOINTS, DEFAULT_ENDPOINT, DEFAULT_MODELS };')({}, {}, {});
+    const endpointOpt = OCR_INFO.options.find((o) => o.identifier === 'endpoint');
+    check('identifier 为独立 ID', OCR_INFO.identifier === 'com.www011215.bob.glm-ocr', OCR_INFO.identifier);
+    check('summary / author 注明原作者', OCR_INFO.summary.includes('MinatoHikari') && OCR_INFO.author.includes('MinatoHikari'));
+    check('菜单默认值 = 第一项 = 代码默认接口', endpointOpt.defaultValue === endpointOpt.menuValues[0].value && endpointOpt.defaultValue === consts.DEFAULT_ENDPOINT, endpointOpt.defaultValue);
+    check('菜单接口都有预设地址', endpointOpt.menuValues.every((m) => m.value === 'custom' || consts.ENDPOINTS[m.value]));
+    check('每个预设接口都有默认模型', Object.keys(consts.ENDPOINTS).every((k) => consts.DEFAULT_MODELS[k]));
+}
+
+console.log('== ocr：glm-ocr（layout_parsing） ==');
+{
+    // 场景：全部留空 → 智谱中国站 + glm-ocr
+    const md = '# 标题\n\n**加粗**正文第一行\n\n![](page_1.jpg)\n\n| a | b |\n|---|---|\n| 1 | 2 |';
+    const { req, out, lines } = await runOcr({ apiKey: 'sk-bm' }, { md_results: md });
+    check('默认走 layout_parsing', req.url === 'https://open.bigmodel.cn/api/paas/v4/layout_parsing', req.url);
+    check('body 只有 model + file(data URI)', req.body.model === 'glm-ocr' && req.body.file === DATA_URL && Object.keys(req.body).length === 2, req.body);
+    check('Bearer 认证头', req.header.Authorization === 'Bearer sk-bm');
+    check('Markdown 转纯文本（标题/加粗/图片/表格）', JSON.stringify(lines) === JSON.stringify(['标题', '', '加粗正文第一行', '', 'a\tb', '1\t2']), lines);
+    check('result.from 为 detectFrom', out.result.from === 'zh-Hans', out.result);
+}
+{
+    const html = '<table><tr><th>名称</th><th>数量</th></tr><tr><td>A&amp;B</td><td>3</td></tr></table>';
+    const { lines } = await runOcr({ endpoint: 'bigmodel', apiKey: 'k' }, { md_results: html });
+    check('HTML 表格转制表符分隔', JSON.stringify(lines) === JSON.stringify(['名称\t数量', 'A&B\t3']), lines);
+}
+{
+    const { req } = await runOcr({ endpoint: 'zai', apiKey: 'k' }, { md_results: 'x' });
+    check('Z.ai 按量付费默认 glm-ocr', req.url === 'https://api.z.ai/api/paas/v4/layout_parsing' && req.body.model === 'glm-ocr', req.url);
+}
+{
+    // 场景：自定义接口填了完整 chat 地址，glm-ocr 仍换算到 layout_parsing
+    const { req } = await runOcr({ customEndpoint: 'https://open.bigmodel.cn/api/paas/v4/chat/completions', apiKey: 'k', model: 'glm-ocr' }, { md_results: 'x' });
+    check('完整 chat 地址换算为 layout_parsing', req.url === 'https://open.bigmodel.cn/api/paas/v4/layout_parsing', req.url);
+}
+{
+    // 场景：本地部署的 glm-ocr（vLLM 等）只有 OpenAI 兼容接口 → 走 chat/completions + data URL
+    const { req } = await runOcr({ endpoint: 'custom', customEndpoint: 'http://127.0.0.1:8080/v1', model: 'glm-ocr' }, CHAT_OK);
+    check('本地 glm-ocr 走 chat/completions', req.url === 'http://127.0.0.1:8080/v1/chat/completions', req.url);
+    check('本地接口图片为 data URL', req.body.messages[0].content[0].image_url.url === DATA_URL);
+}
+{
+    const { out } = await runOcr({ apiKey: 'k' }, { md_results: '' });
+    check('md_results 为空报 api 错误并带模型名', out.error && out.error.type === 'api' && out.error.message.includes('glm-ocr'), out.error);
+}
+{
+    const { out } = await runOcr({ apiKey: 'k', ocrPrompt: '只输出数字' }, { md_results: '42' });
+    check('glm-ocr 忽略自定义提示词', out.result && out.result.texts[0].text === '42', out);
+}
+
+console.log('== ocr：视觉对话模型（chat/completions） ==');
+{
+    const { req, lines } = await runOcr({ endpoint: 'bigmodel', apiKey: 'k', model: 'glm-5.3-flash' }, CHAT_OK);
     const content = req.body.messages[0].content;
-    check('Z.ai URL 正确', req.url === 'https://api.z.ai/api/paas/v4/chat/completions', req.url);
-    check('默认模型 glm-4.6v', req.body.model === 'glm-4.6v', req.body.model);
+    check('智谱中国站 chat URL', req.url === 'https://open.bigmodel.cn/api/paas/v4/chat/completions', req.url);
     check('消息角色为 user（DeepSeek 要求）', req.body.messages[0].role === 'user');
-    check('图片为 data URL base64', content[0].image_url.url === 'data:image/png;base64,' + PNG_B64);
+    check('智谱官方接口发纯 base64', content[0].image_url.url === PNG_B64, content[0].image_url.url.slice(0, 30));
     check('默认提示词禁止翻译并含 Free OCR.', content[1].text.includes('Free OCR.') && content[1].text.includes('Do NOT translate'), content[1].text);
+    check('temperature 0.1', req.body.temperature === 0.1, req.body.temperature);
     check('GLM 默认关闭 thinking', req.body.thinking && req.body.thinking.type === 'disabled', req.body.thinking);
-    check('识别结果按行拆分为 texts', out.result.texts.length === 2 && out.result.texts[0].text === '第一行' && out.result.texts[1].text === '第二行', out.result);
-    check('result.from 为 detectFrom', out.result.from === 'en', out.result);
+    check('识别结果按行拆分为 texts', JSON.stringify(lines) === JSON.stringify(['第一行', '第二行']), lines);
 }
 {
-    const captured = [];
-    const $option = { endpoint: 'deepseek', apiKey: 'sk-ds' };
-    const $http = makeHttp({ choices: [{ message: { content: 'txt' } }] }, captured);
-    const o = makeOcr($option, $http);
-    await o.ocr({ image: { toBase64: () => PNG_B64 }, detectFrom: 'en', onCompletion: () => {} }, null);
-    const p = captured[0].body;
-    check('DeepSeek 默认视觉模型 deepseek-flash', p.model === 'deepseek-flash', p.model);
-    check('DeepSeek 不发送 thinking', !('thinking' in p));
+    const { req } = await runOcr({ endpoint: 'bigmodel_coding', apiKey: 'k' }, CHAT_OK);
+    check('智谱中国站 Coding Plan URL', req.url === 'https://open.bigmodel.cn/api/coding/paas/v4/chat/completions', req.url);
+    check('Coding Plan 默认 glm-4.6v + 纯 base64', req.body.model === 'glm-4.6v' && req.body.messages[0].content[0].image_url.url === PNG_B64, req.body.model);
 }
 {
-    const captured = [];
-    const $option = { endpoint: 'bigmodel_coding', apiKey: 'k' };
-    const $http = makeHttp({ choices: [{ message: { content: 'txt' } }] }, captured);
-    const o = makeOcr($option, $http);
-    await o.ocr({ image: { toBase64: () => PNG_B64 }, detectFrom: 'en', onCompletion: () => {} }, null);
-    check('智谱中国站 Coding Plan URL', captured[0].url === 'https://open.bigmodel.cn/api/coding/paas/v4/chat/completions', captured[0].url);
+    const { req } = await runOcr({ endpoint: 'zai_coding', apiKey: 'k' }, CHAT_OK);
+    check('Z.ai Coding Plan URL', req.url === 'https://api.z.ai/api/coding/paas/v4/chat/completions', req.url);
 }
 {
-    // 场景：OpenCode Zen 端点（Zen 无 deepseek-v4.1-flash，视觉默认 glm-5.3-flash）
-    const captured = [];
-    const $option = { endpoint: 'zen', apiKey: 'sk-oc' };
-    const $http = makeHttp({ choices: [{ message: { content: 'txt' } }] }, captured);
-    const o = makeOcr($option, $http);
-    await o.ocr({ image: { toBase64: () => PNG_B64 }, detectFrom: 'en', onCompletion: () => {} }, null);
-    check('OpenCode Zen URL 正确', captured[0].url === 'https://opencode.ai/zen/v1/chat/completions', captured[0].url);
-    check('Zen 默认视觉模型 glm-5.3-flash', captured[0].body.model === 'glm-5.3-flash', captured[0].body.model);
-    check('Zen GLM 视觉模型默认关闭 thinking', captured[0].body.thinking && captured[0].body.thinking.type === 'disabled', captured[0].body.thinking);
+    const { req } = await runOcr({ endpoint: 'deepseek', apiKey: 'sk-ds' }, CHAT_OK);
+    check('DeepSeek URL + 默认视觉模型 deepseek-flash', req.url === 'https://api.deepseek.com/chat/completions' && req.body.model === 'deepseek-flash', req.url);
+    check('DeepSeek 图片为 data URL', req.body.messages[0].content[0].image_url.url === DATA_URL);
+    check('DeepSeek 不发送 thinking', !('thinking' in req.body));
 }
 {
-    // 场景：OpenCode Go 订阅端点（默认视觉模型 deepseek-v4.1-flash，支持图片输入）
-    const captured = [];
-    const $option = { endpoint: 'go', apiKey: 'sk-go' };
-    const $http = makeHttp({ choices: [{ message: { content: 'txt' } }] }, captured);
-    const o = makeOcr($option, $http);
-    await o.ocr({ image: { toBase64: () => PNG_B64 }, detectFrom: 'en', onCompletion: () => {} }, null);
-    check('OpenCode Go URL 正确', captured[0].url === 'https://opencode.ai/zen/go/v1/chat/completions', captured[0].url);
-    check('Go 默认视觉模型 deepseek-v4.1-flash', captured[0].body.model === 'deepseek-v4.1-flash', captured[0].body.model);
-    check('Go DeepSeek 视觉模型不发送 thinking', !('thinking' in captured[0].body));
+    const { req } = await runOcr({ endpoint: 'zen', apiKey: 'sk-oc' }, CHAT_OK);
+    check('OpenCode Zen URL + 默认 glm-5.3-flash', req.url === 'https://opencode.ai/zen/v1/chat/completions' && req.body.model === 'glm-5.3-flash', req.url);
+    check('非智谱接口上的 GLM 仍发 data URL', req.body.messages[0].content[0].image_url.url === DATA_URL);
+    check('Zen GLM 默认关闭 thinking', req.body.thinking && req.body.thinking.type === 'disabled', req.body.thinking);
 }
 {
-    const captured = [];
-    const $option = { endpoint: 'bigmodel', apiKey: 'k', thinking: 'enabled' };
-    const $http = makeHttp({ choices: [{ message: { content: 'txt' } }] }, captured);
-    const o = makeOcr($option, $http);
-    await o.ocr({ image: { toBase64: () => PNG_B64 }, detectFrom: 'ja', onCompletion: () => {} }, null);
-    check('thinking 开启生效', captured[0].body.thinking.type === 'enabled', captured[0].body.thinking);
+    const { req } = await runOcr({ endpoint: 'go', apiKey: 'sk-go' }, CHAT_OK);
+    check('OpenCode Go URL + 默认 deepseek-v4.1-flash', req.url === 'https://opencode.ai/zen/go/v1/chat/completions' && req.body.model === 'deepseek-v4.1-flash', req.url);
+    check('Go DeepSeek 视觉模型不发送 thinking', !('thinking' in req.body));
 }
 {
-    const captured = [];
-    const $option = { endpoint: 'bigmodel', apiKey: 'k', thinking: 'auto' };
-    const $http = makeHttp({ choices: [{ message: { content: 'txt' } }] }, captured);
-    const o = makeOcr($option, $http);
-    await o.ocr({ image: { toBase64: () => PNG_B64 }, detectFrom: 'ja', onCompletion: () => {} }, null);
-    check('thinking=auto 不发送参数', !('thinking' in captured[0].body));
+    const { req } = await runOcr({ endpoint: 'bigmodel', apiKey: 'k', model: 'glm-4.6v-flash', thinking: 'enabled' }, CHAT_OK);
+    check('thinking 开启生效', req.body.thinking.type === 'enabled', req.body.thinking);
 }
 {
-    // 场景：自定义提示词原样使用
-    const captured = [];
-    const $option = { endpoint: 'zai', apiKey: 'k', ocrPrompt: '只输出数字' };
-    const $http = makeHttp({ choices: [{ message: { content: '42' } }] }, captured);
-    const o = makeOcr($option, $http);
-    await o.ocr({ image: { toBase64: () => PNG_B64 }, detectFrom: 'en', onCompletion: () => {} }, null);
-    check('自定义提示词生效', captured[0].body.messages[0].content[1].text === '只输出数字', captured[0].body.messages[0].content[1].text);
+    const { req } = await runOcr({ endpoint: 'bigmodel', apiKey: 'k', model: 'glm-4.6v-flash', thinking: 'auto' }, CHAT_OK);
+    check('thinking=auto 不发送参数', !('thinking' in req.body));
 }
 {
-    // 场景：本地服务必须填模型名
-    let err = null;
-    const $option = { endpoint: 'custom', customEndpoint: 'http://127.0.0.1:8080/v1' };
-    const $http = makeHttp({ choices: [{}] }, []);
-    const o = makeOcr($option, $http);
-    await o.ocr({ image: { toBase64: () => PNG_B64 }, detectFrom: 'en', onCompletion: (o) => (err = o) }, null);
-    check('本地服务必须填模型名', err && err.error && err.error.type === 'param' && err.error.message.includes('模型名称'), err);
+    const { req } = await runOcr({ endpoint: 'bigmodel', apiKey: 'k', model: 'glm-5.3-flash', ocrPrompt: '只输出数字' }, CHAT_OK);
+    check('自定义提示词生效', req.body.messages[0].content[1].text === '只输出数字', req.body.messages[0].content[1].text);
 }
-{
-    // 场景：缺 API Key 报 secretKey
-    let err = null;
-    const $option = { endpoint: 'zai' };
-    const $http = makeHttp({ choices: [{}] }, []);
-    const o = makeOcr($option, $http);
-    await o.ocr({ image: { toBase64: () => PNG_B64 }, detectFrom: 'en', onCompletion: (o) => (err = o) }, null);
-    check('缺 API Key 报 secretKey', err && err.error && err.error.type === 'secretKey', err);
-}
-
 {
     // 场景：模型自作主张附加 OCR Result/Translation 标签 → 清洗
-    const $option = { endpoint: 'deepseek', apiKey: 'sk-ds' };
-    const $http = makeHttp({ choices: [{ message: { content: `**OCR Result:** 夜深啦,别忘了照顾好自己哦\n**Translation:** "It's late at night, don't forget to take good care of yourself~` } }] }, []);
-    const o = makeOcr($option, $http);
-    const out = await new Promise((resolve) => o.ocr({ image: { toBase64: () => PNG_B64 }, detectFrom: 'zh-Hans', onCompletion: resolve }, null));
-    check('清洗掉模型附加的标签与翻译', out.result.texts.length === 1 && out.result.texts[0].text === '夜深啦,别忘了照顾好自己哦', out.result);
+    const { lines } = await runOcr({ endpoint: 'deepseek', apiKey: 'sk-ds' }, { choices: [{ message: { content: `**OCR Result:** 夜深啦,别忘了照顾好自己哦\n**Translation:** "It's late at night, don't forget to take good care of yourself~` } }] });
+    check('清洗掉模型附加的标签与翻译', JSON.stringify(lines) === JSON.stringify(['夜深啦,别忘了照顾好自己哦']), lines);
 }
 
-// ============ baimiao 插件 ============
-console.log('== bob baimiao ==');
-function makeBaimiao($option, $http, $file, $data, $timer) {
-    const script = readFileSync(path.join(here, 'baimiao', 'main.js'), 'utf8');
-    const exportsObj = {};
-    new Function('$option', '$http', '$file', '$data', '$timer', 'exports', script)($option, $http, $file, $data, $timer, exportsObj);
-    check('baimiao: 入口函数已挂载到 exports', typeof exportsObj.ocr === 'function' && typeof exportsObj.supportLanguages === 'function', Object.keys(exportsObj));
-    return { supportLanguages: exportsObj.supportLanguages, ocr: exportsObj.ocr };
-}
-
-const baimiaoSha1 = (() => {
-    const script = readFileSync(path.join(here, 'baimiao', 'main.js'), 'utf8');
-    return new Function(script + '\nreturn { sha1Hex: sha1Hex };')().sha1Hex;
-})();
-check('白描: 内置 SHA1("abc") 正确', baimiaoSha1('abc') === 'a9993e364706816aba3e25717850c26c9cd0d89d', baimiaoSha1('abc'));
-
-function makeFile() {
-    const files = {};
-    return {
-        files,
-        exists: (p) => !!files[p],
-        read: (p) => ({ toUTF8: () => files[p] }),
-        write: (o) => { files[o.path] = o.data.toUTF8(); return true; }
-    };
-}
-function makeData() {
-    // 模拟 $data：appendData 原地拼接，可断言最终字节流的字段顺序
-    function wrap(bytes) {
-        return {
-            __bytes: bytes,
-            toUTF8: () => Buffer.from(bytes).toString('utf8'),
-            appendData: (other) => { bytes.push(...other.__bytes); }
-        };
-    }
-    return {
-        fromUTF8: (s) => wrap(Array.from(Buffer.from(s, 'utf8'))),
-        fromBase64: (b) => wrap(Array.from(Buffer.from(b, 'base64')))
-    };
-}
-function makeTimer() {
-    // 立即触发（测试中不等待真实间隔）
-    return { schedule: (o) => { o.handler(); return 1; }, invalidate: () => {} };
-}
-
-function baimiaoRoute(step, url, opts) {
-    const body = opts.body || {};
-    if (url.endsWith('/user/login')) {
-        step.loginCalls++;
-        check('白描: 走账号登录且 type=mobile', body.username === '13818969223' && body.type === 'mobile', body);
-        return { response: { statusCode: 200 }, data: { code: 1, data: { token: 'LOGIN_TOKEN', user: {} }, msg: 'success' } };
-    }
-    if (url.endsWith('/user/login/anonymous')) {
-        step.loginCalls++;
-        return { response: { statusCode: 200 }, data: { code: 1, data: { token: 'ANON_TOKEN', user: null }, msg: 'success' } };
-    }
-    if (url.endsWith('/perm/single')) {
-        check('白描: perm/single 带 version=v2', body.version === 'v2' && body.mode === 'single', body);
-        if (!opts.header['X-Auth-Token']) return { response: { statusCode: 200 }, data: { code: 0, msg: '请先登录' } };
-        return { response: { statusCode: 200 }, data: { code: 1, data: { token: 'PERM_TOKEN', engine: 'plus' }, msg: 'success' } };
-    }
-    if (url.includes('/oss/sign')) {
-        check('白描: oss/sign 携带 mime_type', url.includes('mime_type=image/png'), url);
-        return { response: { statusCode: 200 }, data: { code: 1, data: { result: {
-            host: 'https://oss.test', policy: 'POLICY', signature: 'SIG',
-            x_oss_credential: 'CRED', x_oss_date: 'DATE', security_token: 'STK',
-            file_key: 'upload/abc.png', content_types: ['image/png'] } }, msg: 'success' } };
-    }
-    if (url === 'https://oss.test') {
-        const payload = opts.body && opts.body.__bytes;
-        const ct = (opts.header && opts.header['Content-Type']) || '';
-        const text = payload ? Buffer.from(payload).toString('utf8') : '';
-        const keyIdx = text.indexOf('name="key"');
-        const fileIdx = text.indexOf('name="file"');
-        let found = false;
-        if (payload) {
-            outer: for (let i = 0; i <= payload.length - PNG_BYTES.length; i++) {
-                for (let j = 0; j < PNG_BYTES.length; j++) {
-                    if (payload[i + j] !== PNG_BYTES[j]) continue outer;
-                }
-                found = true;
-                break;
-            }
-        }
-        check('白描: OSS 上传为手工 multipart 字节流', Array.isArray(payload) && ct.startsWith('multipart/form-data; boundary=----SaladictBoundary'), ct);
-        check('白描: key 字段存在于表单', keyIdx > -1, keyIdx);
-        check('白描: key 字段在 file 字段之前（OSS 要求）', keyIdx > -1 && fileIdx > keyIdx, { keyIdx, fileIdx });
-        check('白描: 上传字节体包含图片原始字节', found);
-        const boundaryLine = ct.split('boundary=')[1] || '';
-        check('白描: 以结束边界符收尾', text.trimEnd().endsWith('--' + boundaryLine + '--'), text.trimEnd().slice(-40));
-        return { response: { statusCode: 200 }, data: '' };
-    }
-    if (url.includes('/ocr/image/plus') && !url.includes('/status')) {
-        check('白描: 提交 payload 为 v2 最小格式', body.fileKey === 'upload/abc.png' && body.token === 'PERM_TOKEN' && body.dataUrl === undefined && body.total === 1, body);
-        step.submittedHash = body.hash;
-        return { response: { statusCode: 200 }, data: { code: 1, data: { hash: 'h1', jobStatusId: 'JOB/1+' }, msg: 'success' } };
-    }
-    if (url.includes('/status')) {
-        check('白描: jobStatusId 已做 URL 编码', url.includes('JOB%2F1%2B'), url);
-        step.pollCount = (step.pollCount || 0) + 1;
-        if (step.pollCount === 1) return { response: { statusCode: 200 }, data: { code: 1, data: { isEnded: false }, msg: 'success' } };
-        return { response: { statusCode: 200 }, data: { code: 1, data: { isEnded: true, ydResp: { words_result: [ { words: 'Hello' }, { words: 'World' } ] } }, msg: 'success' } };
-    }
-    return { response: { statusCode: 404 }, data: { msg: 'unexpected ' + url } };
-}
-function form2(body) { return !!body; }
-function makeBaimiaoHttp(step) {
-    return {
-        request: async (options) => {
-            step.calls.push(options);
-            step.uuids.push(options.header['X-Auth-Uuid']);
-            return baimiaoRoute(step, options.url, options);
-        }
-    };
+console.log('== ocr：错误处理 ==');
+{
+    const { out } = await runOcr({ endpoint: 'custom', customEndpoint: 'http://127.0.0.1:8080/v1' }, CHAT_OK);
+    check('自定义接口必须填模型名', out.error && out.error.type === 'param' && out.error.message.includes('模型名称'), out.error);
 }
 {
-    // 场景：账号模式，两次识别共享 $file 状态（第二次不再登录，uuid 稳定）
-    const $file = makeFile();
-    const step1 = { calls: [], uuids: [], loginCalls: 0 };
-    const o1 = makeBaimiao({ username: '13818969223', password: 'pw' }, makeBaimiaoHttp(step1), $file, makeData(), makeTimer());
-    const out1 = await new Promise((resolve) => {
-        o1.ocr({ image: { toBase64: () => PNG_B64 }, detectFrom: 'zh-Hans', onCompletion: resolve }, null);
-    });
-    check('白描: 返回按行拆分的 texts', out1.result.texts.length === 2 && out1.result.texts[0].text === 'Hello' && out1.result.texts[1].text === 'World', out1);
-    check('白描: 提交 hash 为 dataUrl 的 SHA1', step1.submittedHash === baimiaoSha1('data:image/png;base64,' + PNG_B64), step1.submittedHash);
-    check('白描: 首次识别登录 1 次', step1.loginCalls === 1, step1.loginCalls);
-    check('白描: 状态已持久化', !!$file.files['$sandbox/state.json'], Object.keys($file.files));
-    // Bob 的 JavaScriptCore 可能没有 crypto.randomUUID，兜底生成必须符合标准 UUID v4 格式
-    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-    check('白描: uuid 为标准带连字符 v4 格式', UUID_RE.test(step1.uuids[0]), step1.uuids[0]);
+    const { out } = await runOcr({ endpoint: 'bigmodel' }, CHAT_OK);
+    check('缺 API Key 报 secretKey', out.error && out.error.type === 'secretKey', out.error);
+}
+{
+    const { out } = await runOcr({ endpoint: 'bigmodel', apiKey: 'k' }, { error: { message: 'invalid key' } }, 401);
+    check('HTTP 401 报 network 并带地址', out.error && out.error.type === 'network' && out.error.message.includes('401') && out.error.message.includes('layout_parsing'), out.error);
+}
+{
+    const body = { error: { message: "messages.content.type 参数非法，取值范围 ['text']", code: '1210' } };
+    const { out } = await runOcr({ endpoint: 'bigmodel', apiKey: 'k', model: 'glm-5.3' }, body, 400);
+    check('纯文本模型给出换视觉模型提示', out.error && out.error.message.includes('不支持图片输入') && out.error.message.includes('模型 glm-5.3'), out.error);
+}
 
-    const step2 = { calls: [], uuids: [], loginCalls: 0, pollCount: 0 };
-    const o2 = makeBaimiao({ username: '13818969223', password: 'pw' }, makeBaimiaoHttp(step2), $file, makeData(), makeTimer());
-    const out2 = await new Promise((resolve) => {
-        o2.ocr({ image: { toBase64: () => PNG_B64 }, detectFrom: 'zh-Hans', onCompletion: resolve }, null);
-    });
-    check('白描: 第二次识别复用 token 不再登录', step2.loginCalls === 0, step2.loginCalls);
-    check('白描: 两次识别 uuid 一致（不被识别为新设备）', step2.uuids[0] === step1.uuids[0], [step1.uuids[0], step2.uuids[0]]);
-    check('白描: 第二次识别正常返回', out2.result.texts[0].text === 'Hello', out2);
+// ======================================================================
+// 语音合成插件 tts/
+// ======================================================================
+const TTS_SCRIPT = read('tts/main.js');
+const TTS_INFO = JSON.parse(read('tts/info.json'));
+
+// 模拟 Bob 的 $data：subData 不含 end，appendData / writeUInt8 原地修改
+function fakeData(bytes) {
+    return {
+        buf: Buffer.from(bytes),
+        get length() { return this.buf.length; },
+        readUInt8(i) { return i >= 0 && i < this.buf.length ? this.buf[i] : 0; },
+        writeUInt8(v, i) { this.buf[i] = v; },
+        subData(s, e) { return fakeData(this.buf.subarray(s, e)); },
+        appendData(d) { this.buf = Buffer.concat([this.buf, d.buf]); },
+        toBase64() { return this.buf.toString('base64'); },
+        toUTF8() { return this.buf.toString('utf8'); }
+    };
 }
-{
-    // 场景：匿名模式
-    let anonymousCalled = false;
-    const $http = {
-        request: async (options) => {
-            const body = options.body || {};
-            if (options.url.endsWith('/user/login/anonymous')) {
-                anonymousCalled = true;
-                return { response: { statusCode: 200 }, data: { code: 1, data: { token: 'ANON', user: null }, msg: 'success' } };
-            }
-            if (options.url.endsWith('/perm/single')) {
-                if (!options.header['X-Auth-Token']) return { response: { statusCode: 200 }, data: { code: 0, msg: '请先登录' } };
-                return { response: { statusCode: 200 }, data: { code: 1, data: { token: 'PT', engine: 'plus' }, msg: 'success' } };
-            }
-            if (options.url.includes('/oss/sign')) return { response: { statusCode: 200 }, data: { code: 1, data: { result: { host: 'h', policy: 'p', signature: 's', x_oss_credential: 'c', x_oss_date: 'd', security_token: 'st', file_key: 'k' } }, msg: 'success' } };
-            if (options.url === 'h') return { response: { statusCode: 200 }, data: '' };
-            if (options.url.includes('/ocr/image/plus') && !options.url.includes('/status')) return { response: { statusCode: 200 }, data: { code: 1, data: { hash: 'x', jobStatusId: 'j' }, msg: 'success' } };
-            if (options.url.includes('/status')) return { response: { statusCode: 200 }, data: { code: 1, data: { isEnded: true, ydResp: { words_result: [{ words: 'ok' }] } }, msg: 'success' } };
-            return { response: { statusCode: 404 }, data: {} };
+
+// 构造 24kHz/16bit/单声道 WAV；withList=true 时在 data 前插一个 LIST 段，验证按段扫描
+function makeWav(pcm, withList) {
+    const fmt = Buffer.alloc(24);
+    fmt.write('fmt ', 0); fmt.writeUInt32LE(16, 4); fmt.writeUInt16LE(1, 8); fmt.writeUInt16LE(1, 10);
+    fmt.writeUInt32LE(24000, 12); fmt.writeUInt32LE(48000, 16); fmt.writeUInt16LE(2, 20); fmt.writeUInt16LE(16, 22);
+    const list = withList ? Buffer.concat([Buffer.from('LIST'), Buffer.from([4, 0, 0, 0]), Buffer.from('INFO')]) : Buffer.alloc(0);
+    const dataHead = Buffer.alloc(8);
+    dataHead.write('data', 0); dataHead.writeUInt32LE(pcm.length, 4);
+    const body = Buffer.concat([Buffer.from('WAVE'), fmt, list, dataHead, pcm]);
+    const riff = Buffer.alloc(8);
+    riff.write('RIFF', 0); riff.writeUInt32LE(body.length, 4);
+    return Buffer.concat([riff, body]);
+}
+
+function ttsHttp(responder, captured) {
+    return {
+        request: (options) => {
+            captured.push(options);
+            const resp = responder(options, captured.length);
+            setTimeout(() => options.handler(resp), 0);
         }
     };
-    const o = makeBaimiao({}, $http, makeFile(), makeData(), makeTimer());
-    const out = await new Promise((resolve) => {
-        o.ocr({ image: { toBase64: () => PNG_B64 }, detectFrom: 'en', onCompletion: resolve }, null);
-    });
-    check('白描: 匿名模式可用', anonymousCalled && out.result.texts[0].text === 'ok', out);
+}
+
+const wavResp = (buf) => ({ response: { statusCode: 200 }, rawData: fakeData(buf), data: null });
+
+async function runTts($option, text, responder) {
+    const captured = [];
+    const t = load(TTS_SCRIPT, $option, ttsHttp(responder, captured));
+    const out = await new Promise((resolve) => t.tts({ text, lang: 'zh-Hans' }, resolve));
+    return { captured, out, t };
+}
+
+console.log('== tts：配置 ==');
+{
+    const t = load(TTS_SCRIPT, {}, {});
+    check('tts 入口函数已挂载到 exports', ['tts', 'supportLanguages', 'pluginTimeoutInterval', 'pluginValidate'].every((k) => typeof t[k] === 'function'), Object.keys(t));
+    check('identifier / category', TTS_INFO.identifier === 'com.www011215.bob.glm-tts' && TTS_INFO.category === 'tts', TTS_INFO.identifier);
+    const voices = TTS_INFO.options.find((o) => o.identifier === 'voice').menuValues.map((m) => m.value);
+    check('音色菜单 = 官方 7 个系统音色', JSON.stringify(voices.slice().sort()) === JSON.stringify(['chuichui', 'douji', 'jam', 'kazi', 'luodo', 'tongtong', 'xiaochen']), voices);
+    check('默认读中英文', JSON.stringify(t.supportLanguages()) === JSON.stringify(['zh-Hans', 'zh-Hant', 'en']));
+    const zhOnly = load(TTS_SCRIPT, { languages: 'zh' }, {});
+    check('「仅中文」不再声明 en', !zhOnly.supportLanguages().includes('en'), zhOnly.supportLanguages());
+}
+
+console.log('== tts：合成 ==');
+{
+    const wav = makeWav(Buffer.from([1, 2, 3, 4]), false);
+    const { captured, out } = await runTts({ apiKey: 'sk-tts' }, '你好，世界', () => wavResp(wav));
+    const req = captured[0];
+    check('请求 audio/speech', req.url === 'https://open.bigmodel.cn/api/paas/v4/audio/speech' && req.method === 'POST', req.url);
+    check('Bearer 认证头', req.header.Authorization === 'Bearer sk-tts');
+    check('默认参数 glm-tts / tongtong / wav / 1.0 / 1.0', JSON.stringify(req.body) === JSON.stringify({ model: 'glm-tts', input: '你好，世界', voice: 'tongtong', response_format: 'wav', speed: 1, volume: 1 }), req.body);
+    check('返回 base64 WAV', out.result && out.result.type === 'base64' && out.result.value === wav.toString('base64'), out);
+    check('raw 记录段数', out.result.raw.chunks === 1, out.result.raw);
 }
 {
-    // 场景：登录失败抛出服务端 msg
-    let err = null;
-    const $http = {
-        request: async (options) => {
-            if (options.url.endsWith('/perm/single')) return { response: { statusCode: 200 }, data: { code: 0, msg: '请先登录' } };
-            if (options.url.endsWith('/user/login')) return { response: { statusCode: 200 }, data: { code: 0, msg: '密码错误' } };
-            return { response: { statusCode: 404 }, data: {} };
-        }
-    };
-    const o = makeBaimiao({ username: 'a@b.c', password: 'x' }, $http, makeFile(), makeData(), makeTimer());
-    await o.ocr({ image: { toBase64: () => PNG_B64 }, detectFrom: 'en', onCompletion: (o) => (err = o) }, null);
-    check('白描: 登录失败抛出原因', err && err.error && err.error.type === 'secretKey' && err.error.message.includes('密码错误'), err);
+    const wav = makeWav(Buffer.from([1, 2]), false);
+    const { captured } = await runTts({ apiKey: 'k', voice: 'xiaochen', customVoice: ' my-clone ', speed: '1.25', volume: '3.0' }, 'x', () => wavResp(wav));
+    const b = captured[0].body;
+    check('自定义音色优先 + 语速 / 音量生效', b.voice === 'my-clone' && b.speed === 1.25 && b.volume === 3, b);
+}
+{
+    const { captured } = await runTts({ apiKey: 'k', speed: '9', volume: '0' }, 'x', () => wavResp(makeWav(Buffer.from([0, 0]), false)));
+    check('语速 / 音量越界被夹到合法范围', captured[0].body.speed === 2 && captured[0].body.volume === 0.1, captured[0].body);
+}
+{
+    // 场景：1500 字长文 → 按句切成两段，拼成一个 WAV
+    const sentence = '这是一个用于测试分段朗读的句子，长度大约三十个字符左右。';
+    const text = sentence.repeat(Math.ceil(1500 / sentence.length));
+    const pcm1 = Buffer.from([10, 11, 12, 13]);
+    const pcm2 = Buffer.from([20, 21]);
+    const { captured, out } = await runTts({ apiKey: 'k' }, text, (o, n) => wavResp(makeWav(n === 1 ? pcm1 : pcm2, true)));
+    check('长文切成多段请求', captured.length === 2, captured.length);
+    check('每段不超过 1024 字', captured.every((r) => r.body.input.length <= 1024), captured.map((r) => r.body.input.length));
+    check('切分点落在句末', captured[0].body.input.endsWith('。'), captured[0].body.input.slice(-5));
+    check('切分不丢字', captured.map((r) => r.body.input).join('') === text);
+    const merged = Buffer.from(out.result.value, 'base64');
+    const expected = makeWav(Buffer.concat([pcm1, pcm2]), true);
+    check('多段 WAV 拼接（含 LIST 段）且长度字段正确', merged.equals(expected), merged.toString('hex'));
+    check('raw 记录段数', out.result.raw.chunks === 2, out.result.raw);
+}
+{
+    // 场景：没有标点的超长文本 → 硬切，且不切开 emoji 代理对
+    const text = 'a'.repeat(1023) + '😀' + 'b'.repeat(10);
+    const { captured } = await runTts({ apiKey: 'k' }, text, () => wavResp(makeWav(Buffer.from([0, 0]), false)));
+    check('硬切不拆代理对', captured[0].body.input === 'a'.repeat(1023) && captured[1].body.input.startsWith('😀'), captured.map((r) => r.body.input.length));
+}
+
+console.log('== tts：错误处理 ==');
+{
+    const { out } = await runTts({}, '你好', () => wavResp(makeWav(Buffer.from([0, 0]), false)));
+    check('缺 API Key 报 secretKey', out.error && out.error.type === 'secretKey', out.error);
+}
+{
+    const { out } = await runTts({ apiKey: 'k' }, '   ', () => wavResp(makeWav(Buffer.from([0, 0]), false)));
+    check('空文本报 param', out.error && out.error.type === 'param', out.error);
+}
+{
+    const { out } = await runTts({ apiKey: 'k' }, '你好', () => ({ response: { statusCode: 401 }, data: { error: { message: 'invalid key' } } }));
+    check('HTTP 401 报 secretKey', out.error && out.error.type === 'secretKey' && out.error.message.includes('invalid key'), out.error);
+}
+{
+    const body = '{"error":{"code":"1214","message":"input 超长"}}';
+    const { out } = await runTts({ apiKey: 'k' }, '你好', () => ({ response: { statusCode: 400 }, data: null, rawData: fakeData(Buffer.from(body)) }));
+    check('HTTP 400 报 network 并带服务端信息', out.error && out.error.type === 'network' && out.error.message.includes('400') && out.error.message.includes('1214'), out.error);
+}
+{
+    const { out } = await runTts({ apiKey: 'k' }, '你好', () => ({ response: { statusCode: 200 }, data: { msg: 'oops' }, rawData: fakeData(Buffer.from('{"msg":"oops"}')) }));
+    check('200 但不是 WAV 报 api', out.error && out.error.type === 'api' && out.error.message.includes('oops'), out.error);
+}
+{
+    const sentence = '第二段失败的测试句子。';
+    const text = sentence.repeat(Math.ceil(1500 / sentence.length));
+    const { out } = await runTts({ apiKey: 'k' }, text, (o, n) => (n === 1 ? wavResp(makeWav(Buffer.from([0, 0]), false)) : { response: { statusCode: 500 }, data: { error: 'busy' } }));
+    check('分段失败时注明第几段', out.error && out.error.message.includes('第 2 / 2 段'), out.error);
+}
+{
+    const captured = [];
+    const t = load(TTS_SCRIPT, { apiKey: 'k' }, ttsHttp(() => wavResp(makeWav(Buffer.from([0, 0]), false)), captured));
+    const ok = await new Promise((resolve) => t.pluginValidate(resolve));
+    check('pluginValidate 成功', ok.result === true && captured[0].body.input === '你好', ok);
+    const t2 = load(TTS_SCRIPT, { apiKey: 'bad' }, ttsHttp(() => ({ response: { statusCode: 401 }, data: { error: 'no' } }), []));
+    const bad = await new Promise((resolve) => t2.pluginValidate(resolve));
+    check('pluginValidate 失败带错误', bad.result === false && bad.error && bad.error.type === 'secretKey', bad);
 }
 
 console.log('\n结果: ' + passed + ' 通过, ' + failures + ' 失败');
 process.exit(failures > 0 ? 1 : 0);
-

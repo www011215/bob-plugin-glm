@@ -1,0 +1,84 @@
+{
+    "identifier": "com.www011215.bob.glm-tts",
+    "version": "1.0.0",
+    "category": "tts",
+    "name": "智谱 GLM 语音",
+    "summary": "使用智谱 GLM-TTS（open.bigmodel.cn）朗读文本，支持中文与中英混读、多种系统音色与复刻音色；超过 1024 字自动分段合成。同仓库的识别插件基于 MinatoHikari/bob-llmtranslation-ocr 修改",
+    "author": "www011215",
+    "homepage": "https://github.com/www011215/bob-plugin-glm",
+    "appcast": "https://raw.githubusercontent.com/www011215/bob-plugin-glm/main/tts/appcast.json",
+    "minBobVersion": "1.6.0",
+    "options": [
+        {
+            "identifier": "apiKey",
+            "type": "text",
+            "title": "API Key (智谱中国站 open.bigmodel.cn)",
+            "textConfig": {
+                "type": "secure"
+            }
+        },
+        {
+            "identifier": "voice",
+            "type": "menu",
+            "title": "音色",
+            "defaultValue": "tongtong",
+            "menuValues": [
+                { "title": "彤彤 (tongtong，默认)", "value": "tongtong" },
+                { "title": "小陈 (xiaochen)", "value": "xiaochen" },
+                { "title": "锤锤 (chuichui)", "value": "chuichui" },
+                { "title": "jam", "value": "jam" },
+                { "title": "kazi", "value": "kazi" },
+                { "title": "douji", "value": "douji" },
+                { "title": "luodo", "value": "luodo" }
+            ]
+        },
+        {
+            "identifier": "customVoice",
+            "type": "text",
+            "title": "自定义音色 ID (选填，如复刻音色，填了优先)",
+            "textConfig": {
+                "type": "visible",
+                "placeholderText": "留空则使用上面选择的音色"
+            }
+        },
+        {
+            "identifier": "speed",
+            "type": "menu",
+            "title": "语速",
+            "defaultValue": "1.0",
+            "menuValues": [
+                { "title": "0.5×", "value": "0.5" },
+                { "title": "0.75×", "value": "0.75" },
+                { "title": "0.9×", "value": "0.9" },
+                { "title": "1.0× (默认)", "value": "1.0" },
+                { "title": "1.1×", "value": "1.1" },
+                { "title": "1.25×", "value": "1.25" },
+                { "title": "1.5×", "value": "1.5" },
+                { "title": "2.0×", "value": "2.0" }
+            ]
+        },
+        {
+            "identifier": "volume",
+            "type": "menu",
+            "title": "音量",
+            "defaultValue": "1.0",
+            "menuValues": [
+                { "title": "0.5×", "value": "0.5" },
+                { "title": "1.0× (默认)", "value": "1.0" },
+                { "title": "1.5×", "value": "1.5" },
+                { "title": "2.0×", "value": "2.0" },
+                { "title": "3.0×", "value": "3.0" }
+            ]
+        },
+        {
+            "identifier": "languages",
+            "type": "menu",
+            "title": "朗读语言",
+            "defaultValue": "zh_en",
+            "menuValues": [
+                { "title": "中文 + 英文 (中英混读)", "value": "zh_en" },
+                { "title": "仅中文 (英文交给其他语音服务)", "value": "zh" }
+            ]
+        }
+    ]
+}
