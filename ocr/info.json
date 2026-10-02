@@ -1,6 +1,6 @@
 {
     "identifier": "com.www011215.bob.glm-ocr",
-    "version": "1.2.0",
+    "version": "1.2.1",
     "category": "ocr",
     "name": "智谱 GLM 识别",
     "summary": "基于 MinatoHikari/bob-llmtranslation-ocr 修改。使用智谱 GLM（open.bigmodel.cn / Z.ai）识别图片文字，默认专用 OCR 模型 glm-ocr；也支持 DeepSeek、OpenCode Zen · Go 与任意 OpenAI 兼容视觉接口",

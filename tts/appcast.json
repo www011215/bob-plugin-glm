@@ -2,6 +2,14 @@
   "identifier": "com.www011215.bob.glm-tts",
   "versions": [
     {
+      "version": "1.0.2",
+      "desc": "图标换成 Z.ai 的 Z 标志；朗读语言默认仅中文",
+      "sha256": "3b614000f7d234debd01114d4e6c3d3f5bf8fad8704c782ba064c183d0f8b885",
+      "url": "https://github.com/www011215/bob-plugin-glm/releases/download/tts-v1.0.2/glm-tts-1.0.2.bobplugin",
+      "minBobVersion": "1.8.0",
+      "timestamp": 1790932880807
+    },
+    {
       "version": "1.0.1",
       "desc": "首个版本：智谱 GLM-TTS 朗读，7 种系统音色 + 复刻音色，超长文本自动分段合成",
       "sha256": "ed22170bd2e5f83ffca74a8c7a880bbba14d284b4965edd590541017a42c65cc",

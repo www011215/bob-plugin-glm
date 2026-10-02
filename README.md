@@ -2,6 +2,8 @@
 
 > **致谢原作者**：本仓库的识别（OCR）插件基于 [@MinatoHikari](https://github.com/MinatoHikari) 的 [bob-llmtranslation-ocr](https://github.com/MinatoHikari/bob-llmtranslation-ocr) 修改而来。插件的整体框架、多接口支持、思考开关、结果清洗等核心功能都出自原作者之手，本仓库完整保留了原作者的提交历史与 MIT 版权声明。感谢原作者的工作！需要**翻译插件**请直接使用原仓库。
 
+> 非官方插件：本项目由个人开发，与智谱 AI / Z.ai 官方无关；插件图标使用 Z.ai 的标志，仅用于表明适用的服务，商标权归其所有。
+
 适用于 [Bob](https://bobtranslate.com/)（macOS 翻译 / OCR 软件）的三个插件，用你自己的智谱 API Key：
 
 | 目录 | 插件 | 类型 | 说明 |

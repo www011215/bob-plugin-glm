@@ -1,0 +1,13 @@
+{
+  "identifier": "com.www011215.bob.glm-translate",
+  "versions": [
+    {
+      "version": "1.0.0",
+      "desc": "首个版本：翻译、英英释义、英英释义 + 中文翻译、自定义 Prompt 四种模式；查单词显示词典卡片；流式输出；默认免费的 glm-4.7-flash",
+      "sha256": "5a46f49beaab3f54e9612d56a8f4bf14288aa50d6046d39c6ddc8f5ae2f0782e",
+      "url": "https://github.com/www011215/bob-plugin-glm/releases/download/translate-v1.0.0/glm-translate-1.0.0.bobplugin",
+      "minBobVersion": "1.8.0",
+      "timestamp": 1790932880739
+    }
+  ]
+}
