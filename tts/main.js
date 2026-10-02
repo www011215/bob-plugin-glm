@@ -15,11 +15,11 @@ var STRONG_BREAKS = ['\n', '。', '！', '？', '!', '?', '；', ';', '…', '. 
 var WEAK_BREAKS = ['，', ',', '、', '：', ':', ' '];
 
 function supportLanguages() {
-    // GLM-TTS 以中文为主，支持中英混读；可在设置里改为只读中文，英文交给其他语音服务。
+    // GLM-TTS 以中文为主、读英文一般：默认只声明中文，英文交给其他语音服务；设置里可改为中英混读。
     // Bob 调用这里时 $option 未必已注入，不能直接读
     var option = (typeof $option !== 'undefined' && $option) || {};
-    if (option.languages === 'zh') return ['zh-Hans', 'zh-Hant'];
-    return ['zh-Hans', 'zh-Hant', 'en'];
+    if (option.languages === 'zh_en') return ['zh-Hans', 'zh-Hant', 'en'];
+    return ['zh-Hans', 'zh-Hant'];
 }
 
 function pluginTimeoutInterval() {

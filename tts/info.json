@@ -23,14 +23,36 @@
             "title": "音色",
             "defaultValue": "tongtong",
             "menuValues": [
-                { "title": "彤彤 (tongtong，默认)", "value": "tongtong" },
-                { "title": "小陈 (xiaochen)", "value": "xiaochen" },
-                { "title": "锤锤 (chuichui)", "value": "chuichui" },
-                { "title": "jam", "value": "jam" },
-                { "title": "kazi", "value": "kazi" },
-                { "title": "douji", "value": "douji" },
-                { "title": "luodo", "value": "luodo" }
-            ]
+                {
+                    "title": "彤彤 (tongtong，默认)",
+                    "value": "tongtong"
+                },
+                {
+                    "title": "小陈 (xiaochen)",
+                    "value": "xiaochen"
+                },
+                {
+                    "title": "锤锤 (chuichui)",
+                    "value": "chuichui"
+                },
+                {
+                    "title": "jam",
+                    "value": "jam"
+                },
+                {
+                    "title": "kazi",
+                    "value": "kazi"
+                },
+                {
+                    "title": "douji",
+                    "value": "douji"
+                },
+                {
+                    "title": "luodo",
+                    "value": "luodo"
+                }
+            ],
+            "desc": "官方没有给出每个音色的风格说明，可以在 https://audio.z.ai/ 试听后再选。"
         },
         {
             "identifier": "customVoice",
@@ -39,7 +61,8 @@
             "textConfig": {
                 "type": "visible",
                 "placeholderText": "留空则使用上面选择的音色"
-            }
+            },
+            "desc": "用 GLM-TTS-Clone 复刻得到的音色 ID（形如 voice_clone_…），填了优先于上面选的音色。只复刻你自己或已获授权的声音。"
         },
         {
             "identifier": "speed",
@@ -47,14 +70,38 @@
             "title": "语速",
             "defaultValue": "1.0",
             "menuValues": [
-                { "title": "0.5×", "value": "0.5" },
-                { "title": "0.75×", "value": "0.75" },
-                { "title": "0.9×", "value": "0.9" },
-                { "title": "1.0× (默认)", "value": "1.0" },
-                { "title": "1.1×", "value": "1.1" },
-                { "title": "1.25×", "value": "1.25" },
-                { "title": "1.5×", "value": "1.5" },
-                { "title": "2.0×", "value": "2.0" }
+                {
+                    "title": "0.5×",
+                    "value": "0.5"
+                },
+                {
+                    "title": "0.75×",
+                    "value": "0.75"
+                },
+                {
+                    "title": "0.9×",
+                    "value": "0.9"
+                },
+                {
+                    "title": "1.0× (默认)",
+                    "value": "1.0"
+                },
+                {
+                    "title": "1.1×",
+                    "value": "1.1"
+                },
+                {
+                    "title": "1.25×",
+                    "value": "1.25"
+                },
+                {
+                    "title": "1.5×",
+                    "value": "1.5"
+                },
+                {
+                    "title": "2.0×",
+                    "value": "2.0"
+                }
             ]
         },
         {
@@ -63,11 +110,26 @@
             "title": "音量",
             "defaultValue": "1.0",
             "menuValues": [
-                { "title": "0.5×", "value": "0.5" },
-                { "title": "1.0× (默认)", "value": "1.0" },
-                { "title": "1.5×", "value": "1.5" },
-                { "title": "2.0×", "value": "2.0" },
-                { "title": "3.0×", "value": "3.0" }
+                {
+                    "title": "0.5×",
+                    "value": "0.5"
+                },
+                {
+                    "title": "1.0× (默认)",
+                    "value": "1.0"
+                },
+                {
+                    "title": "1.5×",
+                    "value": "1.5"
+                },
+                {
+                    "title": "2.0×",
+                    "value": "2.0"
+                },
+                {
+                    "title": "3.0×",
+                    "value": "3.0"
+                }
             ]
         },
         {
@@ -76,19 +138,33 @@
             "title": "AI 水印",
             "defaultValue": "auto",
             "menuValues": [
-                { "title": "默认 (由服务端决定)", "value": "auto" },
-                { "title": "关闭 (需在智谱控制台开通水印管理)", "value": "off" }
-            ]
+                {
+                    "title": "默认 (由服务端决定)",
+                    "value": "auto"
+                },
+                {
+                    "title": "关闭 (需在智谱控制台开通水印管理)",
+                    "value": "off"
+                }
+            ],
+            "desc": "智谱默认会给合成音频加 AI 水印。选「关闭」需要账号已在智谱控制台开通水印管理，否则可能报错。"
         },
         {
             "identifier": "languages",
             "type": "menu",
             "title": "朗读语言",
-            "defaultValue": "zh_en",
+            "defaultValue": "zh",
             "menuValues": [
-                { "title": "中文 + 英文 (中英混读)", "value": "zh_en" },
-                { "title": "仅中文 (英文交给其他语音服务)", "value": "zh" }
-            ]
+                {
+                    "title": "仅中文 (英文交给其他语音服务)",
+                    "value": "zh"
+                },
+                {
+                    "title": "中文 + 英文 (中英混读)",
+                    "value": "zh_en"
+                }
+            ],
+            "desc": "GLM-TTS 以中文为主，读英文一般。默认只读中文，英文交给 Bob 语音合成列表里排在后面的服务（比如 Google）。修改后如果没生效，重启一下 Bob。"
         }
     ]
 }

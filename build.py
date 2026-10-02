@@ -6,10 +6,11 @@
 appcast.json 里的 sha256 才能和 Release 附件对上。
 
 两个插件各自发版，标签分别为 ocr-vX.Y.Z / tts-vX.Y.Z。
+识别插件的 appcast 放在仓库根目录（bobplugin.ripperhe.com 插件列表只读根目录的 appcast.json），语音插件的在 tts/ 下。
 
 用法：
   python3 build.py                          打包全部插件，产物在 dist/
-  python3 build.py ocr --appcast "说明"     打包 ocr 并把当前版本写进 ocr/appcast.json（发版前运行）
+  python3 build.py ocr --appcast "说明"     打包 ocr 并把当前版本写进对应的 appcast.json（发版前运行）
   python3 build.py --check                  CI 打标签时运行：按标签打包对应插件到 dist/release/ 并校验 appcast
 """
 import hashlib
@@ -22,6 +23,7 @@ import zipfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = 'www011215/bob-plugin-glm'
 PLUGINS = {'ocr': 'glm-ocr', 'tts': 'glm-tts'}  # 目录 → 产物名前缀
+APPCASTS = {'ocr': 'appcast.json', 'tts': os.path.join('tts', 'appcast.json')}
 FILES = ['info.json', 'main.js', 'icon.png']
 
 
@@ -49,7 +51,7 @@ def build(plugin, out_dir):
 
 
 def appcast_path(plugin):
-    return os.path.join(HERE, plugin, 'appcast.json')
+    return os.path.join(HERE, APPCASTS[plugin])
 
 
 def load_appcast(plugin, info):
@@ -77,7 +79,7 @@ def write_appcast(plugin, info, name, sha256, desc):
     with open(appcast_path(plugin), 'w', encoding='utf-8') as f:
         json.dump(cast, f, ensure_ascii=False, indent=2)
         f.write('\n')
-    print('已写入 %s/appcast.json: v%s（发版标签 %s）' % (plugin, info['version'], tag))
+    print('已写入 %s: v%s（发版标签 %s）' % (APPCASTS[plugin], info['version'], tag))
 
 
 def check():
@@ -90,12 +92,12 @@ def check():
         sys.exit('标签 %s 与 %s/info.json 的 version %s 不一致' % (tag, plugin, info['version']))
     cast = load_appcast(plugin, info)
     if cast.get('identifier') != info['identifier']:
-        sys.exit('%s/appcast.json 的 identifier 与 info.json 不一致' % plugin)
+        sys.exit('%s 的 identifier 与 info.json 不一致' % APPCASTS[plugin])
     versions = cast.get('versions', [])
     if not versions or versions[0].get('version') != info['version']:
-        sys.exit('%s/appcast.json 最新版本不是 %s：发版前先运行 python3 build.py %s --appcast "更新说明"' % (plugin, info['version'], plugin))
+        sys.exit('%s 最新版本不是 %s：发版前先运行 python3 build.py %s --appcast "更新说明"' % (APPCASTS[plugin], info['version'], plugin))
     if versions[0].get('sha256') != sha256:
-        sys.exit('%s/appcast.json 的 sha256 与产物不一致：%s != %s' % (plugin, versions[0].get('sha256'), sha256))
+        sys.exit('%s 的 sha256 与产物不一致：%s != %s' % (APPCASTS[plugin], versions[0].get('sha256'), sha256))
     print('appcast 校验通过: %s' % tag)
 
 

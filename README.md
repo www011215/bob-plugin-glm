@@ -13,10 +13,24 @@ Bob 规定一个插件只能属于一种类型，所以识别和语音是两个�
 
 ## 安装
 
-1. 从 [Releases](../../releases) 下载 `glm-ocr-x.y.z.bobplugin` 和 / 或 `glm-tts-x.y.z.bobplugin`，双击安装到 Bob（需要 Bob 1.8.0 及以上）
-2. API Key 在 [open.bigmodel.cn](https://open.bigmodel.cn) 控制台创建（识别插件也可以用 [z.ai](https://z.ai) 的 Key）
-3. 识别：Bob → 偏好设置 → 服务 → 文本识别 → `+` → 「智谱 GLM 识别」→ 填 API Key，接口和模型保持默认即可
-4. 语音：Bob → 偏好设置 → 服务 → 语音合成 → `+` → 「智谱 GLM 语音」→ 填 API Key，选音色，点「验证」
+需要 Bob 1.8.0 及以上。
+
+**一键安装**（在「终端」里粘贴运行，会下载最新版、校验 sha256，然后弹出 Bob 的安装确认框）：
+
+```bash
+# 识别插件
+curl -fsSL https://raw.githubusercontent.com/www011215/bob-plugin-glm/main/install.sh | bash
+# 语音插件 / 两个都装：末尾加参数 tts / all
+curl -fsSL https://raw.githubusercontent.com/www011215/bob-plugin-glm/main/install.sh | bash -s -- all
+```
+
+**手动安装**：从 [Releases](../../releases) 下载 `glm-ocr-x.y.z.bobplugin` 和 / 或 `glm-tts-x.y.z.bobplugin`，双击安装到 Bob。
+
+**设置**：
+
+1. API Key 在 [open.bigmodel.cn](https://open.bigmodel.cn) 控制台创建（识别插件也可以用 [z.ai](https://z.ai) 的 Key）
+2. 识别：Bob → 偏好设置 → 服务 → 文本识别 → `+` → 「智谱 GLM 识别」→ 填 API Key，接口和模型保持默认即可
+3. 语音：Bob → 偏好设置 → 服务 → 语音合成 → `+` → 「智谱 GLM 语音」→ 填 API Key，选音色，点「验证」
 
 ## 识别插件（ocr/）
 
@@ -73,19 +87,21 @@ Bob 规定一个插件只能属于一种类型，所以识别和语音是两个�
 - 音色：彤彤（默认）、小陈、锤锤、jam、kazi、douji、luodo；用 GLM-TTS-Clone 复刻的音色把 ID 填进「自定义音色 ID」即可
 - 语速 0.5–2×、音量可调
 - 单次请求上限 1024 字：更长的文本按句切分、逐段合成，再拼成一段音频播放；单次朗读最多 3000 字（按字计费，防止误触长文）
-- GLM-TTS 以中文为主，支持中英混读。如果英文想交给其他语音服务（比如 Bob 自带的 Google），把「朗读语言」设为「仅中文」，并在 Bob 的语音合成服务列表里把它排在前面
+- GLM-TTS 以中文为主，读英文一般：「朗读语言」默认「仅中文」，英文会交给 Bob 语音合成列表里排在后面的服务（比如 Google）。想让它也读英文，改成「中英混读」
 - 设置页「验证」会合成「你好」两个字检查 Key（约 0.0004 元）
 - 智谱默认会给合成的音频加 AI 水印；账号在智谱控制台开通了水印管理的话，可以在「AI 水印」里选择关闭
 
 ## 隐私
 
-插件只向你所选的接口发送截图 / 文本和 API Key，不做任何统计或上报。除此之外唯一的网络访问是 Bob 定期读取本仓库的 `ocr/appcast.json`、`tts/appcast.json` 检查插件更新。
+插件只向你所选的接口发送截图 / 文本和 API Key，不做任何统计或上报。除此之外唯一的网络访问是 Bob 定期读取本仓库的 `appcast.json`（识别插件）和 `tts/appcast.json`（语音插件）检查插件更新。
 
 ## 开发与发版
 
 ```
-ocr/                           识别插件源码（info.json + main.js + icon.png）与更新源 appcast.json
-tts/                           语音插件源码与更新源 appcast.json
+ocr/                           识别插件源码（info.json + main.js + icon.png）
+appcast.json                   识别插件的更新源（放在根目录，Bob 插件列表只读这里）
+tts/                           语音插件源码与它的更新源 tts/appcast.json
+install.sh                     一键安装脚本
 test.mjs                       冒烟测试：node test.mjs
 build.py                       可复现打包 + 维护 appcast.json
 .github/workflows/build.yml    CI：测试 + 打包；推 ocr-v* / tts-v* 标签时校验 sha256 并发布 Release
@@ -95,7 +111,7 @@ build.py                       可复现打包 + 维护 appcast.json
 
 1. 修改 `ocr/info.json` 的 `version`
 2. `node test.mjs`
-3. `python3 build.py ocr --appcast "这一版的更新说明"`（打包并把版本、sha256、下载地址写进 `ocr/appcast.json`）
+3. `python3 build.py ocr --appcast "这一版的更新说明"`（打包并把版本、sha256、下载地址写进 `appcast.json`；语音插件写进 `tts/appcast.json`）
 4. 提交后打标签推送：`git tag ocr-vX.Y.Z && git push origin main ocr-vX.Y.Z`，CI 会校验 sha256 并自动发布 Release。不要用 `git push --tags`：GitHub 在一次推送超过 3 个标签时不会触发任何工作流
 
 插件运行契约（原作者整理）：`main.js` 为普通脚本，Bob 用 JavaScriptCore 以 CommonJS 方式加载，入口函数需挂到 `exports`；识别插件实现 `supportLanguages()` + `ocr(query, completion)`，`query.image` 为 `$data`，用 `.toBase64()` 取 base64；语音插件实现 `supportLanguages()` + `tts(query, completion)`，返回 `{ type: 'base64', value }` 音频；请求用 `$http.request`，配置用 `$option.<identifier>` 读取。

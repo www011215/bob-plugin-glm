@@ -6,7 +6,7 @@
     "summary": "基于 MinatoHikari/bob-llmtranslation-ocr 修改。使用智谱 GLM（open.bigmodel.cn / Z.ai）识别图片文字，默认专用 OCR 模型 glm-ocr；也支持 DeepSeek、OpenCode Zen · Go 与任意 OpenAI 兼容视觉接口",
     "author": "www011215（原作 MinatoHikari）",
     "homepage": "https://github.com/www011215/bob-plugin-glm",
-    "appcast": "https://raw.githubusercontent.com/www011215/bob-plugin-glm/main/ocr/appcast.json",
+    "appcast": "https://raw.githubusercontent.com/www011215/bob-plugin-glm/main/appcast.json",
     "minBobVersion": "1.8.0",
     "options": [
         {
@@ -47,7 +47,8 @@
                     "title": "自定义 (OpenAI 兼容，如本地 DeepSeek-OCR)",
                     "value": "custom"
                 }
-            ]
+            ],
+            "desc": "智谱中国站用 open.bigmodel.cn 的 Key，Z.ai 国际站用 z.ai 的 Key。Coding Plan 套餐按条款只能在官方支持的编程工具里使用，Bob 不在名单内，建议用按量付费的 Key。"
         },
         {
             "identifier": "customEndpoint",
@@ -56,7 +57,8 @@
             "textConfig": {
                 "type": "visible",
                 "placeholderText": "如 http://127.0.0.1:8080/v1"
-            }
+            },
+            "desc": "填了就忽略上面的接口选择，地址会自动补全 /chat/completions；本地模型（vLLM、llama-server 等）用这个。"
         },
         {
             "identifier": "apiKey",
@@ -69,16 +71,17 @@
         {
             "identifier": "model",
             "type": "text",
-            "title": "模型 (选填，留空按接口默认；智谱 / Z.ai 按量付费默认 glm-ocr)",
+            "title": "模型 (选填)",
             "textConfig": {
                 "type": "visible",
                 "placeholderText": "如 glm-ocr / glm-5.3-flash / glm-4.6v-flash"
-            }
+            },
+            "desc": "留空按接口默认：按量付费默认 glm-ocr（专用 OCR，又快又准又便宜），Coding Plan 默认 glm-5.3-flash。也可以填 glm-5.3-flash、glm-4.6v-flash（免费）等视觉模型。注意 glm-5.3 等不带 flash 的旗舰模型是纯文本模型，不能识图。"
         },
         {
             "identifier": "thinking",
             "type": "menu",
-            "title": "深度思考 (仅 GLM 对话模型生效，glm-ocr 不适用)",
+            "title": "深度思考",
             "defaultValue": "disabled",
             "menuValues": [
                 {
@@ -93,16 +96,19 @@
                     "title": "不发送参数 (由服务端决定)",
                     "value": "auto"
                 }
-            ]
+            ],
+            "desc": "只对 GLM 视觉对话模型生效（glm-ocr 不使用）。关闭最快，OCR 一般不需要开启。"
         },
         {
             "identifier": "ocrPrompt",
             "type": "text",
-            "title": "自定义识别提示词 (选填，留空使用 Free OCR.；glm-ocr 不使用提示词)",
+            "title": "自定义识别提示词 (选填)",
             "textConfig": {
                 "type": "visible",
-                "placeholderText": "Free OCR."
-            }
+                "placeholderText": "Free OCR.",
+                "height": 60
+            },
+            "desc": "只对视觉对话模型生效，留空使用内置提示词（逐字识别、不翻译、不加标签）。glm-ocr 不使用提示词。"
         }
     ]
 }

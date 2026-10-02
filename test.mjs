@@ -282,9 +282,11 @@ console.log('== tts：配置 ==');
     check('identifier / category', TTS_INFO.identifier === 'com.www011215.bob.glm-tts' && TTS_INFO.category === 'tts', TTS_INFO.identifier);
     const voices = TTS_INFO.options.find((o) => o.identifier === 'voice').menuValues.map((m) => m.value);
     check('音色菜单 = 官方 7 个系统音色', JSON.stringify(voices.slice().sort()) === JSON.stringify(['chuichui', 'douji', 'jam', 'kazi', 'luodo', 'tongtong', 'xiaochen']), voices);
-    check('默认读中英文', JSON.stringify(t.supportLanguages()) === JSON.stringify(['zh-Hans', 'zh-Hant', 'en']));
-    const zhOnly = load(TTS_SCRIPT, { languages: 'zh' }, {});
-    check('「仅中文」不再声明 en', !zhOnly.supportLanguages().includes('en'), zhOnly.supportLanguages());
+    check('默认只读中文（英文交给其他语音服务）', JSON.stringify(t.supportLanguages()) === JSON.stringify(['zh-Hans', 'zh-Hant']), t.supportLanguages());
+    const zhEn = load(TTS_SCRIPT, { languages: 'zh_en' }, {});
+    check('选「中英混读」时声明 en', zhEn.supportLanguages().includes('en'), zhEn.supportLanguages());
+    const langOpt = TTS_INFO.options.find((o) => o.identifier === 'languages');
+    check('朗读语言菜单默认值 = 第一项 = zh', langOpt.defaultValue === 'zh' && langOpt.menuValues[0].value === 'zh', langOpt.defaultValue);
 }
 
 console.log('== tts：合成 ==');
@@ -383,7 +385,7 @@ console.log('== tts：错误处理 ==');
         const t = load(TTS_SCRIPT, $option, {});
         let langs = null;
         try { langs = t.supportLanguages(); } catch (e) { langs = String(e); }
-        check('$option 为 ' + $option + ' 时 supportLanguages 不抛错', Array.isArray(langs) && langs.includes('en'), langs);
+        check('$option 为 ' + $option + ' 时 supportLanguages 不抛错', Array.isArray(langs) && langs.length === 2, langs);
     }
 }
 {
