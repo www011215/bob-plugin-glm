@@ -3,7 +3,7 @@
     "version": "1.0.0",
     "category": "translate",
     "name": "智谱 GLM 翻译",
-    "summary": "使用智谱 GLM（open.bigmodel.cn / Z.ai）翻译：翻译、英英释义、自定义 Prompt 三种模式，流式输出；查单词时显示词典卡片（音标、词性、释义、例句、词根词缀）。默认免费的 glm-4.7-flash",
+    "summary": "使用智谱 GLM（open.bigmodel.cn / Z.ai）翻译：翻译、英英释义、英英释义 + 中文翻译、自定义 Prompt 四种模式，流式输出；查单词时显示词典卡片（音标、词性、释义、例句、词根词缀）。默认免费的 glm-4.7-flash",
     "author": "www011215",
     "homepage": "https://github.com/www011215/bob-plugin-glm",
     "appcast": "https://raw.githubusercontent.com/www011215/bob-plugin-glm/main/translate/appcast.json",
@@ -24,11 +24,15 @@
                     "value": "explain"
                 },
                 {
+                    "title": "英英释义 + 中文翻译 (一个服务两种都看)",
+                    "value": "explain_trans"
+                },
+                {
                     "title": "自定义 Prompt",
                     "value": "custom"
                 }
             ],
-            "desc": "同一个插件可以添加多次、各选一种模式，比如一个「翻译」做英译中，一个「英英释义」做英英。"
+            "desc": "同一个插件可以添加多次、各选一种模式，比如一个「翻译」做英译中，一个「英英释义」做英英。「英英释义 + 中文翻译」把两者放进一个服务：英英在上、中文翻译在下，一次请求完成，但输出更长、更费 token。"
         },
         {
             "identifier": "endpoint",
@@ -123,7 +127,7 @@
                     "value": "off"
                 }
             ],
-            "desc": "查单个英文单词或短语（最多 3 个词）时，用 Bob 的词典卡片显示音标、词性、释义、例句、词根词缀和词形变化。「翻译」模式下释义用目标语言，「英英释义」模式下用简明英文。"
+            "desc": "查单个英文单词或短语（最多 3 个词）时，用 Bob 的词典卡片显示音标、词性、释义、例句、词根词缀和词形变化。「翻译」模式下释义用目标语言，「英英释义」用简明英文，「英英释义 + 中文翻译」是简明英文释义在上、中文释义在下。"
         },
         {
             "identifier": "style",

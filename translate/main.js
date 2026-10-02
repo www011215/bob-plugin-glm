@@ -77,17 +77,35 @@ var EXPLAIN_USER =
     '**Hard words**\n- **word or phrase**: short explanation in simple English\n\n' +
     'List at most 8 hard words, in the order they appear. If there are no hard words, leave out the "Hard words" section.';
 
+// 英英释义 + 翻译：一次请求，英英在上、译文在下
+var EXPLAIN_TRANS_SYSTEM =
+    'You help English learners. First rewrite the user\'s text in simple, clear English (around CEFR B1 level) while keeping ' +
+    'the meaning accurate, and explain the difficult words or phrases in simple English; use only English in these two parts, ' +
+    'and if the text is not in English, convert it into English for them. Then translate the original text into {target}.';
+
+var EXPLAIN_TRANS_USER =
+    'Text:\n<<<\n{text}\n>>>\n\n' +
+    'Respond in exactly this Markdown format and nothing else:\n' +
+    '**Simple English**\n<the rewritten text>\n\n' +
+    '**Hard words**\n- **word or phrase**: short explanation in simple English\n\n' +
+    '**{heading}**\n<a faithful translation of the original text into {target}>\n\n' +
+    'List at most 8 hard words, in the order they appear. If there are no hard words, leave out the "Hard words" section. ' +
+    'If the original text is already in {target}, leave out the "{heading}" section.';
+
 var DICT_PROMPT =
     'Act as a learner\'s dictionary for the English word or phrase below. Return ONLY one JSON object, no Markdown fences, in this shape:\n' +
-    '{"word": "", "phonetics": {"us": "", "uk": ""}, "parts": [{"part": "", "means": [""]}], "examples": [""], ' +
+    '{"word": "", "phonetics": {"us": "", "uk": ""}, "parts": [{"part": "", "means": [""]}], {extraShape}"examples": [""], ' +
     '"roots": "", "forms": [{"name": "", "words": [""]}], "synonyms": [""]}\n' +
     'Rules: phonetics are IPA; "part" is a short part-of-speech label such as n. v. adj. adv. prep. phr.; ' +
-    'write every meaning in {meaning}, short and clear, at most 3 parts with at most 3 meanings each; ' +
+    'write every meaning in {meaning}, short and clear, at most 3 parts with at most 3 meanings each; {extraRule}' +
     '"examples" are 1-2 short natural English sentences; ' +
     '"roots" briefly explains the word roots and affixes in {meaning} (empty string if not meaningful); ' +
     '"forms" lists inflections or derived words with English names such as plural, past tense, noun, adverb; ' +
     '"synonyms" has at most 4 English words; use empty strings or arrays when unknown.\n\n' +
     'Word: {text}';
+
+var DICT_TRANS_SHAPE = '"translation": [{"part": "", "means": [""]}], ';
+var DICT_TRANS_RULE = '"translation" gives the same parts of speech with short meanings in {target} (at most 3 each); ';
 
 // 只认 1-3 个英文单词（可带连字符 / 撇号）作为「查词」
 var WORD_RE = /^[A-Za-z][A-Za-z'’-]*(?:\s+[A-Za-z][A-Za-z'’-]*){0,2}$/;
@@ -142,17 +160,33 @@ function resolveModel() {
     return DEFAULT_MODELS[resolveEndpoint()] || 'glm-4.7-flash';
 }
 
+var MODES = { translate: true, explain: true, explain_trans: true, custom: true };
+
 function resolveMode() {
     var mode = $option.mode || 'translate';
-    return mode === 'explain' || mode === 'custom' ? mode : 'translate';
+    return MODES[mode] ? mode : 'translate';
 }
 
+// 「英英释义 + 翻译」里译文部分的标题
+function transHeading(code) {
+    if (code === 'zh-Hans') return '中文翻译';
+    if (code === 'zh-Hant' || code === 'yue') return '中文翻譯';
+    return 'Translation (' + langName(code) + ')';
+}
+
+function transDictLabel(code) {
+    if (code === 'zh-Hans') return '中文释义';
+    if (code === 'zh-Hant' || code === 'yue') return '中文釋義';
+    return 'Translation';
+}
+
+// 占位符：内置提示词用 {name}；自定义 Prompt 用 $text / $query.text / $sourceLang / $targetLang（也认 {text} 等）
 function fill(template, vars) {
-    return String(template).replace(/\$query\.text|\{text\}|\$text|\$sourceLang|\$targetLang|\{source\}|\{target\}|\{meaning\}/g, function (m) {
-        if (m === '$query.text' || m === '{text}' || m === '$text') return vars.text;
-        if (m === '$sourceLang' || m === '{source}') return vars.source;
-        if (m === '$targetLang' || m === '{target}') return vars.target;
-        return vars.meaning || '';
+    return String(template).replace(/\$query\.text|\$text|\$sourceLang|\$targetLang|\{(\w+)\}/g, function (m, name) {
+        if (m === '$query.text' || m === '$text') return vars.text;
+        if (m === '$sourceLang') return vars.source;
+        if (m === '$targetLang') return vars.target;
+        return Object.prototype.hasOwnProperty.call(vars, name) ? String(vars[name]) : m;
     });
 }
 
@@ -217,8 +251,9 @@ function asList(value) {
     return value.map(function (v) { return String(v || '').trim(); }).filter(Boolean);
 }
 
-function buildDict(word, d, englishLabels) {
+function buildDict(word, d, opts) {
     var dict = { word: String(d.word || word).trim() || word, phonetics: [], parts: [], exchanges: [], additions: [] };
+    var labels = opts.zhLabels ? { examples: '例句', roots: '词根词缀', synonyms: '近义词' } : { examples: 'Examples', roots: 'Roots', synonyms: 'Synonyms' };
     var ph = d.phonetics || {};
     if (cleanIpa(ph.us)) dict.phonetics.push({ type: 'us', value: cleanIpa(ph.us) });
     if (cleanIpa(ph.uk)) dict.phonetics.push({ type: 'uk', value: cleanIpa(ph.uk) });
@@ -230,18 +265,33 @@ function buildDict(word, d, englishLabels) {
         var words = asList(f && f.words);
         if (words.length) dict.exchanges.push({ name: String((f && f.name) || '').trim() || 'form', words: words });
     });
+    // 「英英释义 + 翻译」：英文释义在上（parts），译文释义作为第一条附加信息紧跟在下面
+    if (opts.transLabel) {
+        var trans = (Array.isArray(d.translation) ? d.translation : []).map(function (p) {
+            var means = asList(p && p.means);
+            var part = String((p && p.part) || '').trim();
+            return means.length ? (part ? part + ' ' : '') + means.join('；') : '';
+        }).filter(Boolean);
+        if (trans.length) dict.additions.push({ name: opts.transLabel, value: trans.join('\n') });
+    }
     var examples = asList(d.examples);
     var synonyms = asList(d.synonyms);
     var roots = String(d.roots || '').trim();
-    if (examples.length) dict.additions.push({ name: englishLabels ? 'Examples' : '例句', value: examples.join('\n') });
-    if (roots) dict.additions.push({ name: englishLabels ? 'Roots' : '词根词缀', value: roots });
-    if (synonyms.length) dict.additions.push({ name: englishLabels ? 'Synonyms' : '近义词', value: synonyms.join(', ') });
+    if (examples.length) dict.additions.push({ name: labels.examples, value: examples.join('\n') });
+    if (roots) dict.additions.push({ name: labels.roots, value: roots });
+    if (synonyms.length) dict.additions.push({ name: labels.synonyms, value: synonyms.join(', ') });
     return dict;
 }
 
 async function lookupWord(query, ctx) {
-    var meaning = ctx.mode === 'explain' ? 'simple English' : langName(ctx.to);
-    var prompt = fill(DICT_PROMPT, { text: ctx.text, meaning: meaning });
+    var bilingual = ctx.mode === 'explain_trans';
+    var vars = {
+        text: ctx.text,
+        meaning: ctx.mode === 'translate' ? langName(ctx.to) : 'simple English',
+        extraShape: bilingual ? DICT_TRANS_SHAPE : '',
+        extraRule: bilingual ? fill(DICT_TRANS_RULE, { target: langName(ctx.transLang) }) : ''
+    };
+    var prompt = fill(DICT_PROMPT, vars);
     var body = buildRequest(ctx.model, [{ role: 'user', content: prompt }], false, 0.2);
     var resp = await $http.request({
         method: 'POST',
@@ -259,7 +309,10 @@ async function lookupWord(query, ctx) {
     var content = message && typeof message.content === 'string' ? message.content : '';
     var parsed = parseJsonLoose(content);
     if (!parsed) return null; // 解析不了就退回普通翻译
-    var dict = buildDict(ctx.text, parsed, ctx.mode === 'explain' || ctx.to === 'en');
+    var dict = buildDict(ctx.text, parsed, {
+        zhLabels: bilingual || (ctx.mode === 'translate' && /^(zh|yue|wyw)/.test(ctx.to || '')),
+        transLabel: bilingual ? transDictLabel(ctx.transLang) : ''
+    });
     if (!dict.parts.length) return null;
     var summary = dict.parts.map(function (p) { return (p.part ? p.part + ' ' : '') + p.means.join('; '); }).join('\n');
     return { from: ctx.from, to: ctx.to, toParagraphs: [summary], toDict: dict };
@@ -273,6 +326,13 @@ function buildMessages(ctx) {
         return [
             { role: 'system', content: EXPLAIN_SYSTEM },
             { role: 'user', content: fill(EXPLAIN_USER, vars) }
+        ];
+    }
+    if (ctx.mode === 'explain_trans') {
+        var tv = { text: ctx.text, target: langName(ctx.transLang), heading: transHeading(ctx.transLang) };
+        return [
+            { role: 'system', content: fill(EXPLAIN_TRANS_SYSTEM, tv) },
+            { role: 'user', content: fill(EXPLAIN_TRANS_USER, tv) }
         ];
     }
     if (ctx.mode === 'custom') {
@@ -405,20 +465,22 @@ async function translate(query, completion) {
         var mode = resolveMode();
         var model = resolveModel();
         var url = buildChatUrl(resolveBaseUrl());
+        var explainLike = mode === 'explain' || mode === 'explain_trans';
         var ctx = {
             mode: mode,
             model: model,
             url: url,
             text: text,
             from: query.detectFrom,
-            // 英英释义始终输出英文
-            to: mode === 'explain' ? 'en' : query.detectTo,
+            // 英英释义以英文为主；「英英释义 + 翻译」的译文语言取目标语言，目标是英文时退回简体中文
+            to: explainLike ? 'en' : query.detectTo,
+            transLang: query.detectTo && query.detectTo !== 'en' ? query.detectTo : 'zh-Hans',
             format: mode === 'translate' ? 'plain' : 'markdown',
             where: '模型 ' + model + ' · ' + url
         };
 
         if (mode !== 'custom' && $option.wordCard !== 'off' && WORD_RE.test(text) &&
-            (mode === 'explain' || query.detectFrom === 'en')) {
+            (explainLike || query.detectFrom === 'en')) {
             var dictResult = await lookupWord(query, ctx);
             if (dictResult) {
                 done({ result: dictResult });

@@ -539,6 +539,34 @@ console.log('== translate：单词词典卡片 ==');
     check('非英文单词不走词典卡片', zh.capture.length === 1 && zh.capture[0].body.stream === true);
 }
 
+console.log('== translate：英英释义 + 中文翻译 ==');
+{
+    const { out, capture } = await runTr({ apiKey: 'k', mode: 'explain_trans' }, EN_ZH, { stream: sse(['**Simple English**\nHi.\n\n', '**中文翻译**\n你好。']) });
+    const [sys, user] = capture[0].body.messages;
+    check('整合版：系统提示要求英英 + 译成简体中文', sys.content.includes('simple, clear English') && sys.content.includes('into Simplified Chinese'), sys.content);
+    check('整合版：输出格式里英英在上、「中文翻译」在下', user.content.indexOf('**Simple English**') < user.content.indexOf('**中文翻译**') && user.content.includes('<<<\n' + EN_ZH.text + '\n>>>'), user.content);
+    check('整合版：Markdown、流式', out.result.content.format === 'markdown' && capture[0].body.stream === true && out.result.content.text.endsWith('你好。'), out.result);
+    const hant = await runTr({ apiKey: 'k', mode: 'explain_trans' }, { ...EN_ZH, detectTo: 'zh-Hant' }, { stream: sse(['x']) });
+    check('目标繁体时标题为「中文翻譯」', hant.capture[0].body.messages[1].content.includes('**中文翻譯**') && hant.capture[0].body.messages[0].content.includes('Traditional Chinese'));
+    const toEn = await runTr({ apiKey: 'k', mode: 'explain_trans' }, { ...EN_ZH, detectTo: 'en' }, { stream: sse(['x']) });
+    check('目标是英文时译文退回简体中文', toEn.capture[0].body.messages[1].content.includes('**中文翻译**'));
+}
+{
+    const BI_JSON = JSON.stringify({
+        word: 'ubiquitous', phonetics: { us: 'juːˈbɪkwɪtəs' }, parts: [{ part: 'adj.', means: ['found almost everywhere'] }],
+        translation: [{ part: 'adj.', means: ['无处不在的', '普遍存在的'] }], examples: ['Phones are ubiquitous.'], roots: 'ubique + -ous', forms: [], synonyms: []
+    });
+    const { out, capture } = await runTr({ apiKey: 'k', mode: 'explain_trans' }, { text: 'ubiquitous', detectFrom: 'en', detectTo: 'zh-Hans' }, { json: { choices: [{ message: { content: BI_JSON } }] } });
+    const prompt = capture[0].body.messages[0].content;
+    const d = out.result.toDict;
+    check('整合版查词：要求英文释义 + translation 字段（简体中文）', prompt.includes('in simple English') && prompt.includes('"translation"') && prompt.includes('in Simplified Chinese'), prompt);
+    check('整合版查词：英文释义在 parts、中文释义紧跟其后', d.parts[0].means[0] === 'found almost everywhere' && d.additions[0].name === '中文释义' && d.additions[0].value === 'adj. 无处不在的；普遍存在的', d.additions);
+    check('整合版查词：其余附加信息用中文标签', d.additions.map((a) => a.name).join() === '中文释义,例句,词根词缀', d.additions.map((a) => a.name));
+    const plain = await runTr({ apiKey: 'k', mode: 'explain' }, { text: 'ubiquitous', detectFrom: 'en', detectTo: 'zh-Hans' }, { json: { choices: [{ message: { content: BI_JSON } }] } });
+    const p2 = plain.capture[0].body.messages[0].content;
+    check('纯英英查词不要 translation、占位符都已替换', !p2.includes('"translation"') && !/\{(extraShape|extraRule|meaning|text|target)\}/.test(p2) && !plain.out.result.toDict.additions.some((a) => a.name === '中文释义'), p2);
+}
+
 console.log('== translate：错误处理 ==');
 {
     const { out } = await runTr({ apiKey: 'bad' }, EN_ZH, { status: 401, stream: '{"error":{"code":"1001","message":"Header中未收到Authorization参数"}}' });
