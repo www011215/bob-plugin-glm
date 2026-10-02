@@ -1,15 +1,16 @@
-# Bob 智谱 GLM 插件：文字识别 + 语音合成
+# Bob 智谱 GLM 插件：翻译 + 文字识别 + 语音合成
 
 > **致谢原作者**：本仓库的识别（OCR）插件基于 [@MinatoHikari](https://github.com/MinatoHikari) 的 [bob-llmtranslation-ocr](https://github.com/MinatoHikari/bob-llmtranslation-ocr) 修改而来。插件的整体框架、多接口支持、思考开关、结果清洗等核心功能都出自原作者之手，本仓库完整保留了原作者的提交历史与 MIT 版权声明。感谢原作者的工作！需要**翻译插件**请直接使用原仓库。
 
-适用于 [Bob](https://bobtranslate.com/)（macOS 翻译 / OCR 软件）的两个插件，用你自己的智谱 API Key：
+适用于 [Bob](https://bobtranslate.com/)（macOS 翻译 / OCR 软件）的三个插件，用你自己的智谱 API Key：
 
 | 目录 | 插件 | 类型 | 说明 |
 |---|---|---|---|
+| `translate/` | 智谱 GLM 翻译 | 文本翻译 | 翻译 / 英英释义 / 自定义 Prompt 三种模式，流式输出；查单词时显示词典卡片（音标、词性、释义、例句、词根词缀）；默认免费的 `glm-4.7-flash` |
 | `ocr/` | 智谱 GLM 识别 | 文本识别 | 截图文字识别，默认专用 OCR 模型 `glm-ocr`；也支持 GLM 视觉模型、Z.ai、DeepSeek、OpenCode、任意 OpenAI 兼容接口 |
 | `tts/` | 智谱 GLM 语音 | 语音合成 | 用 `glm-tts` 朗读文本，中文与中英混读，7 种系统音色 + 复刻音色 |
 
-Bob 规定一个插件只能属于一种类型，所以识别和语音是两个独立的 `.bobplugin`，分别安装。
+Bob 规定一个插件只能属于一种类型，所以三个插件是三个独立的 `.bobplugin`，按需安装。
 
 ## 安装
 
@@ -20,17 +21,30 @@ Bob 规定一个插件只能属于一种类型，所以识别和语音是两个�
 ```bash
 # 识别插件
 curl -fsSL https://raw.githubusercontent.com/www011215/bob-plugin-glm/main/install.sh | bash
-# 语音插件 / 两个都装：末尾加参数 tts / all
-curl -fsSL https://raw.githubusercontent.com/www011215/bob-plugin-glm/main/install.sh | bash -s -- all
+# 翻译插件 / 语音插件 / 全部：末尾加参数 translate / tts / all
+curl -fsSL https://raw.githubusercontent.com/www011215/bob-plugin-glm/main/install.sh | bash -s -- translate
 ```
 
-**手动安装**：从 [Releases](../../releases) 下载 `glm-ocr-x.y.z.bobplugin` 和 / 或 `glm-tts-x.y.z.bobplugin`，双击安装到 Bob。
+**手动安装**：从 [Releases](../../releases) 下载需要的 `glm-translate-x.y.z.bobplugin` / `glm-ocr-x.y.z.bobplugin` / `glm-tts-x.y.z.bobplugin`，双击安装到 Bob。
 
 **设置**：
 
 1. API Key 在 [open.bigmodel.cn](https://open.bigmodel.cn) 控制台创建（识别插件也可以用 [z.ai](https://z.ai) 的 Key）
-2. 识别：Bob → 偏好设置 → 服务 → 文本识别 → `+` → 「智谱 GLM 识别」→ 填 API Key，接口和模型保持默认即可
-3. 语音：Bob → 偏好设置 → 服务 → 语音合成 → `+` → 「智谱 GLM 语音」→ 填 API Key，选音色，点「验证」
+2. 翻译：Bob → 偏好设置 → 服务 → 文本翻译 → `+` → 「智谱 GLM 翻译」→ 填 API Key，选模式。想同时要英译中和英英释义，就添加两次，一个选「翻译」、一个选「英英释义」
+3. 识别：Bob → 偏好设置 → 服务 → 文本识别 → `+` → 「智谱 GLM 识别」→ 填 API Key，接口和模型保持默认即可
+4. 语音：Bob → 偏好设置 → 服务 → 语音合成 → `+` → 「智谱 GLM 语音」→ 填 API Key，选音色，点「验证」
+
+## 翻译插件（translate/）
+
+和 Bob 内置的智谱服务相比，多了这些：
+
+- **单词词典卡片**：查单个英文单词或短语（最多 3 个词）时，用 Bob 原生的词典卡片显示音标、词性、释义、例句、词根词缀、词形变化和近义词。「翻译」模式下释义用目标语言，「英英释义」模式下用简明英文
+- **英英释义模式**：句子改写成简明英文（约 CEFR B1），再用简明英文注释难词；用 Markdown 排版（Bob 1.21+ 渲染）
+- **学术 / 医学风格**：术语按学科惯例翻译，保留 DNA、MRI、PD-1 等常用缩写
+- **默认关闭深度思考**：GLM-4.5 及以上的模型默认会先思考再回答，翻译用不着，关掉后响应快很多
+- **自定义 Prompt**：支持 `$text`、`$sourceLang`、`$targetLang` 占位符，兼容 Bob 内置服务的 `$query.text`；没写占位符时自动把原文接在指令后面
+- 默认免费的 `glm-4.7-flash`；想要更好的译文可以填 `glm-5.3-flash`（便宜）或 `glm-5.3`（旗舰）
+- 设置页有「验证」按钮，一键检查 Key、接口和模型
 
 ## 识别插件（ocr/）
 
@@ -93,13 +107,14 @@ curl -fsSL https://raw.githubusercontent.com/www011215/bob-plugin-glm/main/insta
 
 ## 隐私
 
-插件只向你所选的接口发送截图 / 文本和 API Key，不做任何统计或上报。除此之外唯一的网络访问是 Bob 定期读取本仓库的 `appcast.json`（识别插件）和 `tts/appcast.json`（语音插件）检查插件更新。
+插件只向你所选的接口发送截图 / 文本和 API Key，不做任何统计或上报。除此之外唯一的网络访问是 Bob 定期读取本仓库的 `appcast.json`（识别插件）、`translate/appcast.json`、`tts/appcast.json` 检查插件更新。
 
 ## 开发与发版
 
 ```
 ocr/                           识别插件源码（info.json + main.js + icon.png）
 appcast.json                   识别插件的更新源（放在根目录，Bob 插件列表只读这里）
+translate/                     翻译插件源码与它的更新源 translate/appcast.json
 tts/                           语音插件源码与它的更新源 tts/appcast.json
 install.sh                     一键安装脚本
 test.mjs                       冒烟测试：node test.mjs
@@ -107,7 +122,7 @@ build.py                       可复现打包 + 维护 appcast.json
 .github/workflows/build.yml    CI：测试 + 打包；推 ocr-v* / tts-v* 标签时校验 sha256 并发布 Release
 ```
 
-两个插件各自发版（以识别插件为例，语音插件把 `ocr` 换成 `tts`）：
+各插件各自发版（以识别插件为例，其他插件把 `ocr` 换成 `translate` / `tts`）：
 
 1. 修改 `ocr/info.json` 的 `version`
 2. `node test.mjs`
@@ -118,4 +133,4 @@ build.py                       可复现打包 + 维护 appcast.json
 
 ## 许可
 
-[MIT](LICENSE)。识别插件原作 © 2026 [MinatoHikari](https://github.com/MinatoHikari)，修改部分与语音插件 © 2026 [www011215](https://github.com/www011215)。
+[MIT](LICENSE)。识别插件原作 © 2026 [MinatoHikari](https://github.com/MinatoHikari)，修改部分与翻译、语音插件 © 2026 [www011215](https://github.com/www011215)。

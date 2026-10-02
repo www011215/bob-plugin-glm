@@ -1,6 +1,6 @@
 #!/bin/bash
 # 一键安装智谱 GLM 的 Bob 插件：从 appcast 读取最新版本，下载并校验 sha256 后交给 Bob 安装
-# 用法：curl -fsSL https://raw.githubusercontent.com/www011215/bob-plugin-glm/main/install.sh | bash -s -- [ocr|tts|all]
+# 用法：curl -fsSL https://raw.githubusercontent.com/www011215/bob-plugin-glm/main/install.sh | bash -s -- [ocr|tts|translate|all]
 set -euo pipefail
 
 RAW="https://raw.githubusercontent.com/www011215/bob-plugin-glm/main"
@@ -9,15 +9,16 @@ TARGET="${1:-ocr}"
 case "$TARGET" in
     ocr) PLUGINS="ocr" ;;
     tts) PLUGINS="tts" ;;
-    all) PLUGINS="ocr tts" ;;
-    *) echo "用法: install.sh [ocr|tts|all]（默认 ocr）" >&2; exit 1 ;;
+    translate) PLUGINS="translate" ;;
+    all) PLUGINS="ocr translate tts" ;;
+    *) echo "用法: install.sh [ocr|tts|translate|all]（默认 ocr）" >&2; exit 1 ;;
 esac
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
 for plugin in $PLUGINS; do
-    if [ "$plugin" = "ocr" ]; then cast_url="$RAW/appcast.json"; else cast_url="$RAW/tts/appcast.json"; fi
+    if [ "$plugin" = "ocr" ]; then cast_url="$RAW/appcast.json"; else cast_url="$RAW/$plugin/appcast.json"; fi
     curl -fsSL "$cast_url" -o "$TMP/$plugin.json"
     url="$(plutil -extract versions.0.url raw -o - "$TMP/$plugin.json")"
     sha="$(plutil -extract versions.0.sha256 raw -o - "$TMP/$plugin.json")"

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""打包脚本：把 ocr/、tts/ 打成可安装的 .bobplugin，并维护各自的 appcast.json（Bob 插件更新源）
+"""打包脚本：把 ocr/、tts/、translate/ 打成可安装的 .bobplugin，并维护各自的 appcast.json（Bob 插件更新源）
 
 .bobplugin 本质是一个 zip，info.json / main.js / icon.png 必须位于压缩包根目录。
 固定文件顺序、时间戳与权限且不压缩（文件很小），保证本地与 CI 打出的包逐字节一致，
 appcast.json 里的 sha256 才能和 Release 附件对上。
 
-两个插件各自发版，标签分别为 ocr-vX.Y.Z / tts-vX.Y.Z。
-识别插件的 appcast 放在仓库根目录（bobplugin.ripperhe.com 插件列表只读根目录的 appcast.json），语音插件的在 tts/ 下。
+各插件各自发版，标签分别为 ocr-vX.Y.Z / tts-vX.Y.Z / translate-vX.Y.Z。
+识别插件的 appcast 放在仓库根目录（bobplugin.ripperhe.com 插件列表只读根目录的 appcast.json），其余插件的在各自目录下。
 
 用法：
   python3 build.py                          打包全部插件，产物在 dist/
@@ -22,8 +22,9 @@ import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = 'www011215/bob-plugin-glm'
-PLUGINS = {'ocr': 'glm-ocr', 'tts': 'glm-tts'}  # 目录 → 产物名前缀
-APPCASTS = {'ocr': 'appcast.json', 'tts': os.path.join('tts', 'appcast.json')}
+PLUGINS = {'ocr': 'glm-ocr', 'tts': 'glm-tts', 'translate': 'glm-translate'}  # 目录 → 产物名前缀
+APPCASTS = {'ocr': 'appcast.json', 'tts': os.path.join('tts', 'appcast.json'),
+            'translate': os.path.join('translate', 'appcast.json')}
 FILES = ['info.json', 'main.js', 'icon.png']
 
 
@@ -86,7 +87,7 @@ def check():
     tag = os.environ.get('GITHUB_REF_NAME', '')
     plugin, _, version = tag.partition('-v')
     if plugin not in PLUGINS or not version:
-        sys.exit('标签 %r 不是 ocr-vX.Y.Z / tts-vX.Y.Z 格式' % tag)
+        sys.exit('标签 %r 不是 <ocr|tts|translate>-vX.Y.Z 格式' % tag)
     info, name, sha256 = build(plugin, os.path.join(HERE, 'dist', 'release'))
     if version != info['version']:
         sys.exit('标签 %s 与 %s/info.json 的 version %s 不一致' % (tag, plugin, info['version']))
@@ -102,8 +103,8 @@ def check():
 
 
 USAGE = '''用法:
-  python3 build.py [ocr|tts]                  打包（不写 appcast）
-  python3 build.py <ocr|tts> --appcast "说明"  打包并写入对应插件的 appcast.json
+  python3 build.py [ocr|tts|translate]        打包（不写 appcast）
+  python3 build.py <插件> --appcast "说明"     打包并写入对应插件的 appcast.json
   python3 build.py --check                    CI 打标签时校验'''
 
 

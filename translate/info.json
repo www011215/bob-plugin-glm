@@ -1,0 +1,167 @@
+{
+    "identifier": "com.www011215.bob.glm-translate",
+    "version": "1.0.0",
+    "category": "translate",
+    "name": "智谱 GLM 翻译",
+    "summary": "使用智谱 GLM（open.bigmodel.cn / Z.ai）翻译：翻译、英英释义、自定义 Prompt 三种模式，流式输出；查单词时显示词典卡片（音标、词性、释义、例句、词根词缀）。默认免费的 glm-4.7-flash",
+    "author": "www011215",
+    "homepage": "https://github.com/www011215/bob-plugin-glm",
+    "appcast": "https://raw.githubusercontent.com/www011215/bob-plugin-glm/main/translate/appcast.json",
+    "minBobVersion": "1.8.0",
+    "options": [
+        {
+            "identifier": "mode",
+            "type": "menu",
+            "title": "模式",
+            "defaultValue": "translate",
+            "menuValues": [
+                {
+                    "title": "翻译 (译成目标语言)",
+                    "value": "translate"
+                },
+                {
+                    "title": "英英释义 (简明英文 + 难词注释)",
+                    "value": "explain"
+                },
+                {
+                    "title": "自定义 Prompt",
+                    "value": "custom"
+                }
+            ],
+            "desc": "同一个插件可以添加多次、各选一种模式，比如一个「翻译」做英译中，一个「英英释义」做英英。"
+        },
+        {
+            "identifier": "endpoint",
+            "type": "menu",
+            "title": "接口",
+            "defaultValue": "bigmodel",
+            "menuValues": [
+                {
+                    "title": "智谱中国站 · 按量付费",
+                    "value": "bigmodel"
+                },
+                {
+                    "title": "智谱中国站 · Coding Plan",
+                    "value": "bigmodel_coding"
+                },
+                {
+                    "title": "Z.ai 国际站 · 按量付费",
+                    "value": "zai"
+                },
+                {
+                    "title": "Z.ai 国际站 · Coding Plan",
+                    "value": "zai_coding"
+                },
+                {
+                    "title": "自定义 (OpenAI 兼容)",
+                    "value": "custom"
+                }
+            ],
+            "desc": "智谱中国站用 open.bigmodel.cn 的 Key，Z.ai 国际站用 z.ai 的 Key。Coding Plan 套餐按条款只能在官方支持的编程工具里使用，Bob 不在名单内，建议用按量付费的 Key。"
+        },
+        {
+            "identifier": "customEndpoint",
+            "type": "text",
+            "title": "自定义接口地址 (选填，填了优先)",
+            "textConfig": {
+                "type": "visible",
+                "placeholderText": "如 http://127.0.0.1:8080/v1"
+            },
+            "desc": "填了就忽略上面的接口选择，地址会自动补全 /chat/completions。"
+        },
+        {
+            "identifier": "apiKey",
+            "type": "text",
+            "title": "API Key",
+            "textConfig": {
+                "type": "secure"
+            }
+        },
+        {
+            "identifier": "model",
+            "type": "text",
+            "title": "模型 (选填)",
+            "textConfig": {
+                "type": "visible",
+                "placeholderText": "glm-4.7-flash"
+            },
+            "desc": "留空按接口默认：按量付费默认免费的 glm-4.7-flash，Coding Plan 默认 glm-5.3-flash。想要更好的译文可以填 glm-5.3-flash（便宜）或 glm-5.3（旗舰）。"
+        },
+        {
+            "identifier": "thinking",
+            "type": "menu",
+            "title": "深度思考",
+            "defaultValue": "disabled",
+            "menuValues": [
+                {
+                    "title": "关闭 (更快)",
+                    "value": "disabled"
+                },
+                {
+                    "title": "开启 (更准，但要等思考完才出字)",
+                    "value": "enabled"
+                },
+                {
+                    "title": "不发送参数 (由服务端决定)",
+                    "value": "auto"
+                }
+            ],
+            "desc": "GLM-4.5 及以上的模型默认会先思考再回答，翻译一般不需要，关闭后响应快很多。"
+        },
+        {
+            "identifier": "wordCard",
+            "type": "menu",
+            "title": "单词词典卡片",
+            "defaultValue": "on",
+            "menuValues": [
+                {
+                    "title": "开启",
+                    "value": "on"
+                },
+                {
+                    "title": "关闭",
+                    "value": "off"
+                }
+            ],
+            "desc": "查单个英文单词或短语（最多 3 个词）时，用 Bob 的词典卡片显示音标、词性、释义、例句、词根词缀和词形变化。「翻译」模式下释义用目标语言，「英英释义」模式下用简明英文。"
+        },
+        {
+            "identifier": "style",
+            "type": "menu",
+            "title": "翻译风格",
+            "defaultValue": "general",
+            "menuValues": [
+                {
+                    "title": "通用",
+                    "value": "general"
+                },
+                {
+                    "title": "学术 / 医学",
+                    "value": "academic"
+                }
+            ],
+            "desc": "只对「翻译」模式生效。「学术 / 医学」会按学科惯例翻译术语，保留 DNA、MRI、PD-1 等常用缩写，语气更书面。"
+        },
+        {
+            "identifier": "systemPrompt",
+            "type": "text",
+            "title": "自定义角色设定 (System Prompt)",
+            "textConfig": {
+                "type": "visible",
+                "height": 80
+            },
+            "desc": "只对「自定义 Prompt」模式生效。可用占位符：$text（原文）、$sourceLang（源语言）、$targetLang（目标语言），也兼容 Bob 内置服务的 $query.text。"
+        },
+        {
+            "identifier": "userPrompt",
+            "type": "text",
+            "title": "自定义用户指令 (User Prompt)",
+            "textConfig": {
+                "type": "visible",
+                "height": 80,
+                "placeholderText": "$text"
+            },
+            "desc": "只对「自定义 Prompt」模式生效。没写 $text 时会自动把原文接在指令后面。"
+        }
+    ]
+}

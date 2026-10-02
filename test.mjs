@@ -429,5 +429,144 @@ console.log('== tts：错误处理 ==');
     check('pluginValidate 失败带错误', bad.result === false && bad.error && bad.error.type === 'secretKey', bad);
 }
 
+// ======================================================================
+// 翻译插件 translate/
+// ======================================================================
+const TR_SCRIPT = read('translate/main.js');
+const TR_INFO = JSON.parse(read('translate/info.json'));
+
+const sse = (deltas) => deltas.map((d) => 'data: ' + JSON.stringify({ choices: [{ delta: { content: d } }] }) + '\n\n').join('') + 'data: [DONE]\n\n';
+
+// streamRequest 模拟：整段响应按 7 个字符切块喂给 streamHandler，故意切在行中间
+function trHttp({ stream = '', status = 200, json, capture }) {
+    return {
+        request: (o) => {
+            capture.push(o);
+            const resp = { response: { statusCode: status }, data: json };
+            if (o.handler) {
+                setTimeout(() => o.handler(resp), 0);
+                return undefined;
+            }
+            return Promise.resolve(resp);
+        },
+        streamRequest: (o) => {
+            capture.push(o);
+            setTimeout(() => {
+                for (let i = 0; i < stream.length; i += 7) o.streamHandler({ text: stream.slice(i, i + 7) });
+                o.handler({ response: { statusCode: status } });
+            }, 0);
+        }
+    };
+}
+
+async function runTr($option, query, httpOpts) {
+    const capture = [];
+    const t = load(TR_SCRIPT, $option, trHttp({ ...httpOpts, capture }));
+    const streamed = [];
+    const out = await new Promise((resolve) => t.translate({ ...query, onStream: (r) => streamed.push(r), onCompletion: resolve }, null));
+    return { out, streamed, capture };
+}
+
+const EN_ZH = { text: 'Hello, world. This is a test.', detectFrom: 'en', detectTo: 'zh-Hans', cancelSignal: 'SIG' };
+const DICT_JSON = '```json\n' + JSON.stringify({
+    word: 'ubiquitous', phonetics: { us: '/juːˈbɪkwɪtəs/', uk: '/juːˈbɪkwɪtəs/' },
+    parts: [{ part: 'adj.', means: ['无处不在的', '普遍存在的'] }],
+    examples: ['Smartphones are ubiquitous.'], roots: 'ubique（拉丁语：到处）+ -ous', forms: [{ name: 'noun', words: ['ubiquity'] }], synonyms: ['omnipresent']
+}) + '\n```';
+
+console.log('== translate：配置 ==');
+{
+    const t = load(TR_SCRIPT, {}, {});
+    const consts = new Function('$option, $http, exports', TR_SCRIPT + '\nreturn { ENDPOINTS, DEFAULT_ENDPOINT, DEFAULT_MODELS };')({}, {}, {});
+    const opt = (id) => TR_INFO.options.find((o) => o.identifier === id);
+    check('translate 入口函数已挂载', ['translate', 'supportLanguages', 'pluginValidate', 'pluginTimeoutInterval'].every((k) => typeof t[k] === 'function'));
+    check('identifier / category', TR_INFO.identifier === 'com.www011215.bob.glm-translate' && TR_INFO.category === 'translate');
+    check('接口菜单默认值 = 第一项 = 代码默认', opt('endpoint').defaultValue === opt('endpoint').menuValues[0].value && opt('endpoint').defaultValue === consts.DEFAULT_ENDPOINT);
+    check('每个预设接口都有默认模型', Object.keys(consts.ENDPOINTS).every((k) => consts.DEFAULT_MODELS[k]));
+    check('模式默认「翻译」且为第一项', opt('mode').defaultValue === 'translate' && opt('mode').menuValues[0].value === 'translate');
+    const langs = t.supportLanguages();
+    check('supportLanguages 含 auto / zh-Hans / en', langs.includes('auto') && langs.includes('zh-Hans') && langs.includes('en'), langs.slice(0, 5));
+}
+
+console.log('== translate：流式翻译 ==');
+{
+    const { out, streamed, capture } = await runTr({ apiKey: 'k' }, EN_ZH, { stream: sse(['你好', '，世界。', '这是测试。']) });
+    const req = capture[0];
+    check('走 streamRequest + 智谱中国站', req.url === 'https://open.bigmodel.cn/api/paas/v4/chat/completions' && capture.length === 1, req.url);
+    check('默认免费 glm-4.7-flash、关思考、流式', req.body.model === 'glm-4.7-flash' && req.body.stream === true && req.body.thinking.type === 'disabled', req.body);
+    check('提示词含源语言与目标语言', req.body.messages[0].content.includes('from English into Simplified Chinese') && req.body.messages[1].content === EN_ZH.text, req.body.messages[0].content);
+    check('cancelSignal 透传', req.cancelSignal === 'SIG');
+    check('流式回调累计译文', streamed.length === 3 && streamed[2].result.toParagraphs[0] === '你好，世界。这是测试。', streamed.map((s) => s.result.toParagraphs[0]));
+    check('最终结果 plain 格式', out.result.content.format === 'plain' && out.result.content.text === '你好，世界。这是测试。' && out.result.to === 'zh-Hans', out.result);
+}
+{
+    const { capture } = await runTr({ apiKey: 'k', style: 'academic' }, EN_ZH, { stream: sse(['x']) });
+    check('学术 / 医学风格追加术语要求', capture[0].body.messages[0].content.includes('standard terminology'), capture[0].body.messages[0].content);
+}
+{
+    const { out, capture } = await runTr({ apiKey: 'k', mode: 'explain' }, EN_ZH, { stream: sse(['**Simple English**\n', 'Hi.']) });
+    check('英英释义：英文系统提示 + 原文放进 <<< >>>', capture[0].body.messages[0].content.includes('English-to-English') && capture[0].body.messages[1].content.includes('<<<\n' + EN_ZH.text + '\n>>>'));
+    check('英英释义：输出 markdown、目标语言为 en', out.result.content.format === 'markdown' && out.result.to === 'en', out.result);
+}
+{
+    const { capture } = await runTr({ apiKey: 'k', mode: 'custom', systemPrompt: 'Translate into $targetLang.', userPrompt: 'Rewrite: $query.text' }, EN_ZH, { stream: sse(['x']) });
+    check('自定义 Prompt 占位符替换', capture[0].body.messages[0].content === 'Translate into Simplified Chinese.' && capture[0].body.messages[1].content === 'Rewrite: ' + EN_ZH.text, capture[0].body.messages);
+    const noPh = await runTr({ apiKey: 'k', mode: 'custom', userPrompt: 'Rewrite this in simple English.' }, EN_ZH, { stream: sse(['x']) });
+    check('用户指令没写占位符时自动接上原文', noPh.capture[0].body.messages[0].content === 'Rewrite this in simple English.\n\n' + EN_ZH.text, noPh.capture[0].body.messages);
+}
+
+console.log('== translate：单词词典卡片 ==');
+{
+    const { out, capture } = await runTr({ apiKey: 'k' }, { text: 'ubiquitous', detectFrom: 'en', detectTo: 'zh-Hans' }, { json: { choices: [{ message: { content: DICT_JSON } }] } });
+    const d = out.result && out.result.toDict;
+    check('英文单词走词典卡片（非流式）', capture.length === 1 && !capture[0].body.stream && capture[0].body.messages[0].content.includes('Simplified Chinese'), capture.map((c) => c.body.stream));
+    check('音标去掉斜杠、分 us / uk', d && d.phonetics.length === 2 && d.phonetics[0].type === 'us' && d.phonetics[0].value === 'juːˈbɪkwɪtəs', d && d.phonetics);
+    check('词性释义 / 词形 / 附加信息（中文标签）', d && d.parts[0].part === 'adj.' && d.parts[0].means.length === 2 && d.exchanges[0].words[0] === 'ubiquity' && d.additions.map((a) => a.name).join() === '例句,词根词缀,近义词', d);
+    check('toParagraphs 给出释义摘要', out.result.toParagraphs[0] === 'adj. 无处不在的; 普遍存在的', out.result.toParagraphs);
+}
+{
+    const { out, capture } = await runTr({ apiKey: 'k', mode: 'explain' }, { text: 'ubiquitous', detectFrom: 'en', detectTo: 'zh-Hans' }, { json: { choices: [{ message: { content: DICT_JSON } }] } });
+    check('英英释义查词：简明英文 + 英文标签', capture[0].body.messages[0].content.includes('simple English') && out.result.toDict.additions[0].name === 'Examples' && out.result.to === 'en', out.result.toDict.additions);
+}
+{
+    const { out, capture } = await runTr({ apiKey: 'k' }, { text: 'ubiquitous', detectFrom: 'en', detectTo: 'zh-Hans' }, { json: { choices: [{ message: { content: 'not json' } }] }, stream: sse(['无处不在的']) });
+    check('词典 JSON 解析失败时退回普通翻译', capture.length === 2 && capture[1].body.stream === true && out.result.toParagraphs[0] === '无处不在的', out.result);
+}
+{
+    const off = await runTr({ apiKey: 'k', wordCard: 'off' }, { text: 'ubiquitous', detectFrom: 'en', detectTo: 'zh-Hans' }, { stream: sse(['无处不在的']) });
+    check('关闭词典卡片时直接翻译', off.capture.length === 1 && off.capture[0].body.stream === true);
+    const zh = await runTr({ apiKey: 'k' }, { text: '苹果', detectFrom: 'zh-Hans', detectTo: 'en' }, { stream: sse(['apple']) });
+    check('非英文单词不走词典卡片', zh.capture.length === 1 && zh.capture[0].body.stream === true);
+}
+
+console.log('== translate：错误处理 ==');
+{
+    const { out } = await runTr({ apiKey: 'bad' }, EN_ZH, { status: 401, stream: '{"error":{"code":"1001","message":"Header中未收到Authorization参数"}}' });
+    check('401 报 secretKey 并带服务端信息', out.error && out.error.type === 'secretKey' && out.error.message.includes('[1001]'), out.error);
+}
+{
+    const { out } = await runTr({ apiKey: 'k' }, EN_ZH, { stream: 'data: {"error":{"message":"rate limit"}}\n\n' });
+    check('流中途返回错误事件', out.error && out.error.type === 'api' && out.error.message.includes('rate limit'), out.error);
+}
+{
+    const { out } = await runTr({ apiKey: 'k' }, EN_ZH, { stream: 'data: [DONE]\n\n' });
+    check('没有译文时报错', out.error && out.error.message.includes('未返回译文'), out.error);
+}
+{
+    const { out } = await runTr({}, EN_ZH, { stream: sse(['x']) });
+    check('缺 API Key 报 secretKey', out.error && out.error.type === 'secretKey', out.error);
+    const c = await runTr({ endpoint: 'custom', apiKey: 'k', model: 'm' }, EN_ZH, { stream: sse(['x']) });
+    check('选了自定义却没填地址', c.out.error && c.out.error.message.includes('自定义接口地址'), c.out.error);
+}
+{
+    const capture = [];
+    const t = load(TR_SCRIPT, { apiKey: 'k' }, trHttp({ capture, json: { choices: [] } }));
+    const ok = await new Promise((resolve) => t.pluginValidate(resolve));
+    check('pluginValidate 成功', ok.result === true && capture[0].body.max_tokens === 8 && capture[0].body.stream === false, ok);
+    const t2 = load(TR_SCRIPT, { apiKey: 'bad' }, trHttp({ capture: [], status: 401, json: { error: { code: '1000', message: '身份验证失败' } } }));
+    const bad = await new Promise((resolve) => t2.pluginValidate(resolve));
+    check('pluginValidate 失败带错误', bad.result === false && bad.error.type === 'secretKey' && bad.error.message.includes('身份验证失败'), bad);
+}
+
 console.log('\n结果: ' + passed + ' 通过, ' + failures + ' 失败');
 process.exit(failures > 0 ? 1 : 0);
