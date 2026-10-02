@@ -19,13 +19,14 @@ var ENDPOINTS = {
 var DEFAULT_ENDPOINT = 'bigmodel';
 
 // 各端点默认模型：智谱 / Z.ai 按量付费默认专用 OCR 模型 glm-ocr（走 layout_parsing 接口）；
+// Coding Plan 套餐内的视觉模型是 glm-5.3-flash；
 // Zen 没有 deepseek-v4.1-flash，用 glm-5.3-flash；Go 用 stable 的 deepseek-v4.1-flash（二者均支持图片输入）
 var DEFAULT_MODELS = {
     deepseek: 'deepseek-flash',
     zai: 'glm-ocr',
-    zai_coding: 'glm-4.6v',
+    zai_coding: 'glm-5.3-flash',
     bigmodel: 'glm-ocr',
-    bigmodel_coding: 'glm-4.6v',
+    bigmodel_coding: 'glm-5.3-flash',
     zen: 'glm-5.3-flash',
     go: 'deepseek-v4.1-flash'
 };
@@ -74,17 +75,20 @@ var DEFAULT_OCR_PROMPT =
 var TEXT_ONLY_HINT = '提示：该模型不支持图片输入，请换视觉模型（如 glm-ocr / glm-5.3-flash / glm-4.6v-flash）';
 
 // 清洗模型自行附加的内容：剥离 OCR Result/识别结果 标签前缀；
-// 出现 Translation/翻译 小节时丢弃该行及之后全部内容（模型自作主张的翻译）
+// 模型先输出过这类标签、随后又出现 Translation/翻译 小节时，丢弃该行及之后全部内容（模型自作主张的翻译）。
+// 没有标签时不截断，以免截图正文里本来就有的 "Translation:" 行被误删
 function sanitizeOcrText(text) {
     var lines = String(text).split('\n');
     var out = [];
+    var sawLabel = false;
     for (var i = 0; i < lines.length; i++) {
         var trimmed = lines[i].replace(/\s+$/, '');
-        if (/^(\*{1,2}|_{1,2})?\s*(translation|译文|翻译)\s*(\*{1,2}|_{1,2})?\s*[:：]\s*(\*{1,2}|_{1,2})?\s*/i.test(trimmed)) {
+        if (sawLabel && /^(\*{1,2}|_{1,2})?\s*(translation|译文|翻译)\s*(\*{1,2}|_{1,2})?\s*[:：]\s*(\*{1,2}|_{1,2})?\s*/i.test(trimmed)) {
             break;
         }
         var label = trimmed.match(/^(\*{1,2}|_{1,2})?\s*(ocr\s*result|ocr结果|识别结果)\s*(\*{1,2}|_{1,2})?\s*[:：]\s*(\*{1,2}|_{1,2})?\s*/i);
         if (label) {
+            sawLabel = true;
             var rest = trimmed.slice(label[0].length).trim();
             if (rest) out.push(rest);
             continue;
@@ -94,38 +98,63 @@ function sanitizeOcrText(text) {
     return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
+var NAMED_ENTITIES = {
+    nbsp: ' ', lt: '<', gt: '>', quot: '"', apos: "'", amp: '&',
+    lsquo: '‘', rsquo: '’', ldquo: '“', rdquo: '”', ndash: '–', mdash: '—', hellip: '…',
+    middot: '·', times: '×', divide: '÷', deg: '°', plusmn: '±', le: '≤', ge: '≥', ne: '≠',
+    micro: 'µ', copy: '©', reg: '®', trade: '™'
+};
+
+// 单次扫描解码 HTML 实体（常见命名实体 + 十进制 / 十六进制数字实体），&amp;lt; 只解一层
 function decodeHtmlEntities(s) {
-    return s.replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-        .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
+    return s.replace(/&(?:#(\d+)|#[xX]([0-9a-fA-F]+)|([a-zA-Z][a-zA-Z0-9]*));/g, function (m, dec, hex, name) {
+        if (name) return Object.prototype.hasOwnProperty.call(NAMED_ENTITIES, name) ? NAMED_ENTITIES[name] : m;
+        var cp = dec ? parseInt(dec, 10) : parseInt(hex, 16);
+        return cp > 0 && cp <= 0x10ffff ? String.fromCodePoint(cp) : m;
+    });
 }
 
+// 只删这些已知的 HTML 标签，避免把正文里的 "P < 0.05 … n > 30"、"vector<int>" 当成标签吞掉
+var HTML_TAG = /<\/?(?:table|thead|tbody|tfoot|caption|colgroup|col|tr|td|th|div|p|span|img|br|hr|b|i|u|s|em|strong|sub|sup|ul|ol|li|a|center|font|figure|figcaption|h[1-6])(?:\s[^<>]*)?\/?>/gi;
+
 // glm-ocr 返回 Markdown（md_results）：转成适合 Bob 展示 / 复制的纯文本
-// 去掉图片引用、标题与加粗标记；HTML / Markdown 表格转为制表符分隔的行
+// 去掉图片引用、标题与加粗标记、代码块围栏；HTML / Markdown 表格转为制表符分隔的行
 function markdownToPlainText(md) {
     var s = String(md).replace(/\r\n?/g, '\n');
     s = s.replace(/!\[[^\]]*\]\([^)]*\)/g, '');
     s = s.replace(/<br\s*\/?>/gi, '\n');
-    s = s.replace(/<\/t[dh]>\s*/gi, '\t').replace(/<\/tr>\s*/gi, '\n');
-    s = s.replace(/<[^>]+>/g, '');
+    s = s.replace(/<\/t[dh]>\s*/gi, '\t').replace(/\t?<\/tr>\s*/gi, '\n');
+    s = s.replace(/<\/(?:p|div|li|h[1-6]|ul|ol|table|figure|figcaption|caption)>/gi, '\n');
+    s = s.replace(HTML_TAG, '');
     s = decodeHtmlEntities(s);
     var out = [];
+    var inFence = false;
     var lines = s.split('\n');
     for (var i = 0; i < lines.length; i++) {
         var line = lines[i];
+        // 代码块：去掉 ``` 围栏，块内原样保留（不当作 Markdown 处理）
+        if (/^\s*(```|~~~)/.test(line)) {
+            inFence = !inFence;
+            continue;
+        }
+        if (inFence) {
+            out.push(line.replace(/\s+$/, ''));
+            continue;
+        }
         if (/^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$/.test(line)) continue;
         if (/^\s*\|.*\|\s*$/.test(line)) {
             line = line.trim().replace(/^\||\|$/g, '').split('|').map(function (c) {
                 return c.trim();
             }).join('\t');
         }
+        // 加粗只在词边界处去标记，x**2、f(**kwargs) 这类正文保持原样
         line = line.replace(/^\s{0,3}#{1,6}\s+/, '')
-            .replace(/^\s{0,3}>\s?/, '')
-            .replace(/\*\*([^*]+)\*\*/g, '$1')
-            .replace(/__([^_]+)__/g, '$1')
-            .replace(/[\t ]+$/, '');
+            .replace(/(^|[^\w*])\*\*([^*\s](?:[^*]*[^*\s])?)\*\*(?![\w*])/g, '$1$2')
+            .replace(/ +$/, '');
         out.push(line);
     }
-    return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+    // 不用 trim()：表格首行的前导制表符（左上角空单元格）要保留
+    return out.join('\n').replace(/\n{3,}/g, '\n\n').replace(/^\n+/, '').replace(/\s+$/, '');
 }
 
 function supportLanguages() {
@@ -145,6 +174,9 @@ function resolveEndpoint() {
 function resolveBaseUrl() {
     var custom = ($option.customEndpoint || '').trim();
     if (custom) return custom;
+    if (resolveEndpoint() === 'custom') {
+        throw errorObj('param', '已选择「自定义」接口：请填写「自定义接口地址」（如 http://127.0.0.1:8080/v1）');
+    }
     var preset = ENDPOINTS[resolveEndpoint()];
     if (preset) return preset;
     throw errorObj('param', '接口地址配置无效（' + resolveEndpoint() + '）：请重新选择接口');
@@ -200,7 +232,9 @@ async function ocr(query, completion) {
         var baseUrl = resolveBaseUrl();
         var zhipu = isZhipuHost(baseUrl);
         var base64 = query.image.toBase64();
-        var dataUrl = 'data:image/png;base64,' + base64;
+        // Bob 截图是 PNG；万一传来 JPEG（base64 以 /9j/ 开头），mime 跟着改
+        var mime = /^\/9j\//.test(base64) ? 'image/jpeg' : 'image/png';
+        var dataUrl = 'data:' + mime + ';base64,' + base64;
 
         var layoutParsing = zhipu && /^glm-ocr/i.test(model);
         var url;
@@ -278,13 +312,13 @@ async function ocr(query, completion) {
                 }).join('');
             }
             content = (content || '').trim();
-            if (!content && message && message.reasoning_content) {
-                content = String(message.reasoning_content).trim();
-            }
+            // content 为空时不回退到 reasoning_content：那是模型的思考过程，不是识别结果
             if (!content) {
                 throw errorObj('api', '接口未返回内容：' + String(JSON.stringify(data)).slice(0, 400) + '\n' + where);
             }
-            text = sanitizeOcrText(content.replace(/^"+|"+$/g, '').trim());
+            // 模型偶尔用一对引号把整段结果包起来；只在首尾成对且中间没有其它引号时去掉，截图里本来的引号保持原样
+            if (/^"[^"]*"$/.test(content)) content = content.slice(1, -1).trim();
+            text = sanitizeOcrText(content);
         }
 
         var texts = text.split('\n').map(function (line) {

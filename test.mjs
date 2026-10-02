@@ -108,7 +108,46 @@ console.log('== ocr：glm-ocr（layout_parsing） ==');
     check('glm-ocr 忽略自定义提示词', out.result && out.result.texts[0].text === '42', out);
 }
 
+console.log('== ocr：Markdown → 纯文本回归（QA 发现的问题） ==');
+{
+    const md2text = new Function('$option, $http, exports', OCR_SCRIPT + '\nreturn markdownToPlainText;')({}, {}, {});
+    const same = (input) => md2text(input) === input;
+    check('正文里的 < > 不被当成标签吞掉', same('The mean was higher (P < 0.01).') && same('Another finding with n > 30 samples.') && same('std::vector<int> v; #include <stdio.h>'), md2text('P < 0.05 and n > 30'));
+    check('表格单元格里的 < 0.001 保留', md2text('<table><tr><td>A</td><td>< 0.001</td></tr></table>') === 'A\t< 0.001', md2text('<table><tr><td>A</td><td>< 0.001</td></tr></table>'));
+    check('x**2、**kwargs、__init__、>65 保持原样', same('x**2 + y**2') && same('def f(**kwargs, **opts)') && same('file __init__.py') && same('>65 years old'));
+    check('词边界处的加粗照常去掉', md2text('中文**加粗**中文 and **bold** text') === '中文加粗中文 and bold text', md2text('中文**加粗**中文 and **bold** text'));
+    check('代码块去围栏、块内 # 注释保留', md2text('```python\n# compute sum\nx = a**2\n```') === '# compute sum\nx = a**2', md2text('```python\n# compute sum\nx = a**2\n```'));
+    check('HTML 实体（数字 / 命名）解码', md2text('It&#x27;s &rsquo; &hellip; &#8217; &amp;lt;') === 'It\'s ’ … ’ &lt;', md2text('It&#x27;s &rsquo; &hellip; &#8217; &amp;lt;'));
+    check('相邻块级元素分行', md2text('<div>Line A</div><div>Line B</div>') === 'Line A\nLine B', md2text('<div>Line A</div><div>Line B</div>'));
+    check('左上角空单元格保留（表头不错列）', md2text('<table><tr><th></th><th>A</th><th>B</th></tr><tr><td>r1</td><td>1</td><td>2</td></tr></table>') === '\tA\tB\nr1\t1\t2');
+}
+
 console.log('== ocr：视觉对话模型（chat/completions） ==');
+{
+    // 场景：截图正文本来就有 Translation: 行（没有模型附加的标签）→ 不截断
+    const { lines } = await runOcr({ endpoint: 'deepseek', apiKey: 'k' }, { choices: [{ message: { content: 'Translation: bonjour = hello\nmerci = thanks' } }] });
+    check('正文里的 Translation: 行不被截断', JSON.stringify(lines) === JSON.stringify(['Translation: bonjour = hello', 'merci = thanks']), lines);
+}
+{
+    const { lines } = await runOcr({ endpoint: 'deepseek', apiKey: 'k' }, { choices: [{ message: { content: '"Hello," he said.' } }] });
+    check('截图里本来的引号保持原样', JSON.stringify(lines) === JSON.stringify(['"Hello," he said.']), lines);
+    const wrapped = await runOcr({ endpoint: 'deepseek', apiKey: 'k' }, { choices: [{ message: { content: '"整段被包起来"' } }] });
+    check('整段被一对引号包起来时去掉', wrapped.lines[0] === '整段被包起来', wrapped.lines);
+}
+{
+    const { out } = await runOcr({ endpoint: 'bigmodel', apiKey: 'k', model: 'glm-4.6v', thinking: 'enabled' }, { choices: [{ message: { content: '', reasoning_content: 'Let me think...' } }] });
+    check('content 为空时不把思考过程当结果', out.error && out.error.type === 'api', out);
+}
+{
+    const { out } = await runOcr({ endpoint: 'custom', apiKey: 'k', model: 'm' }, CHAT_OK);
+    check('选了自定义却没填地址时提示去填地址', out.error && out.error.message.includes('自定义接口地址'), out.error);
+}
+{
+    const captured = [];
+    const o = load(OCR_SCRIPT, { endpoint: 'deepseek', apiKey: 'k' }, makeHttp(CHAT_OK, captured));
+    await new Promise((resolve) => o.ocr({ image: { toBase64: () => '/9j/4AAQSkZJRg==' }, detectFrom: 'en', onCompletion: resolve }, null));
+    check('JPEG 图片用 image/jpeg', captured[0].body.messages[0].content[0].image_url.url.startsWith('data:image/jpeg;base64,'), captured[0].body.messages[0].content[0].image_url.url.slice(0, 30));
+}
 {
     const { req, lines } = await runOcr({ endpoint: 'bigmodel', apiKey: 'k', model: 'glm-5.3-flash' }, CHAT_OK);
     const content = req.body.messages[0].content;
@@ -123,7 +162,7 @@ console.log('== ocr：视觉对话模型（chat/completions） ==');
 {
     const { req } = await runOcr({ endpoint: 'bigmodel_coding', apiKey: 'k' }, CHAT_OK);
     check('智谱中国站 Coding Plan URL', req.url === 'https://open.bigmodel.cn/api/coding/paas/v4/chat/completions', req.url);
-    check('Coding Plan 默认 glm-4.6v + 纯 base64', req.body.model === 'glm-4.6v' && req.body.messages[0].content[0].image_url.url === PNG_B64, req.body.model);
+    check('Coding Plan 默认 glm-5.3-flash + 纯 base64', req.body.model === 'glm-5.3-flash' && req.body.messages[0].content[0].image_url.url === PNG_B64, req.body.model);
 }
 {
     const { req } = await runOcr({ endpoint: 'zai_coding', apiKey: 'k' }, CHAT_OK);
@@ -292,7 +331,45 @@ console.log('== tts：合成 ==');
     check('硬切不拆代理对', captured[0].body.input === 'a'.repeat(1023) && captured[1].body.input.startsWith('😀'), captured.map((r) => r.body.input.length));
 }
 
+{
+    // 场景：接口返回流式头（RIFF / data 长度字段为 0）的单段 WAV → 修正长度字段
+    const good = makeWav(Buffer.from([1, 2, 3, 4]), false);
+    const streamed = Buffer.from(good);
+    streamed.writeUInt32LE(0, 4);
+    streamed.writeUInt32LE(0, 40);
+    const { out } = await runTts({ apiKey: 'k' }, '你好', () => wavResp(streamed));
+    check('单段流式头被修正为合法 WAV', Buffer.from(out.result.value, 'base64').equals(good), Buffer.from(out.result.value, 'base64').subarray(0, 44).toString('hex'));
+}
+{
+    const { captured } = await runTts({ apiKey: 'k', watermark: 'off' }, 'x', () => wavResp(makeWav(Buffer.from([0, 0]), false)));
+    check('关闭水印时发送 watermark_enabled=false', captured[0].body.watermark_enabled === false, captured[0].body);
+    const def = await runTts({ apiKey: 'k' }, 'x', () => wavResp(makeWav(Buffer.from([0, 0]), false)));
+    check('默认不发送 watermark_enabled', !('watermark_enabled' in def.captured[0].body), def.captured[0].body);
+}
+{
+    // 场景：窗口后半段没有任何断点、前半段有句号 → 在句号处切，而不是在 1024 处硬切
+    const text = '前半句。' + '字'.repeat(1100);
+    const { captured } = await runTts({ apiKey: 'k' }, text, () => wavResp(makeWav(Buffer.from([0, 0]), false)));
+    check('后半段无断点时退回到最近的句号', captured[0].body.input === '前半句。', captured[0].body.input.slice(0, 10));
+}
+
 console.log('== tts：错误处理 ==');
+{
+    const { captured, out } = await runTts({ apiKey: 'k' }, '字'.repeat(3001), () => wavResp(makeWav(Buffer.from([0, 0]), false)));
+    check('超过 3000 字直接提示、不发请求', out.error && out.error.type === 'param' && out.error.message.includes('3000') && captured.length === 0, out.error);
+}
+{
+    for (const $option of [undefined, null]) {
+        const t = load(TTS_SCRIPT, $option, {});
+        let langs = null;
+        try { langs = t.supportLanguages(); } catch (e) { langs = String(e); }
+        check('$option 为 ' + $option + ' 时 supportLanguages 不抛错', Array.isArray(langs) && langs.includes('en'), langs);
+    }
+}
+{
+    const { out } = await runTts({ apiKey: 'k' }, '你好', () => ({ response: { statusCode: 502 } }));
+    check('空响应体提示「响应无内容」而不是 undefined', out.error && out.error.message.includes('响应无内容') && !out.error.message.includes('undefined'), out.error);
+}
 {
     const { out } = await runTts({}, '你好', () => wavResp(makeWav(Buffer.from([0, 0]), false)));
     check('缺 API Key 报 secretKey', out.error && out.error.type === 'secretKey', out.error);

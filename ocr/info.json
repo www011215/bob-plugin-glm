@@ -7,7 +7,7 @@
     "author": "www011215（原作 MinatoHikari）",
     "homepage": "https://github.com/www011215/bob-plugin-glm",
     "appcast": "https://raw.githubusercontent.com/www011215/bob-plugin-glm/main/ocr/appcast.json",
-    "minBobVersion": "0.5.0",
+    "minBobVersion": "1.8.0",
     "options": [
         {
             "identifier": "endpoint",

@@ -7,7 +7,7 @@
     "author": "www011215",
     "homepage": "https://github.com/www011215/bob-plugin-glm",
     "appcast": "https://raw.githubusercontent.com/www011215/bob-plugin-glm/main/tts/appcast.json",
-    "minBobVersion": "1.6.0",
+    "minBobVersion": "1.8.0",
     "options": [
         {
             "identifier": "apiKey",
@@ -68,6 +68,16 @@
                 { "title": "1.5×", "value": "1.5" },
                 { "title": "2.0×", "value": "2.0" },
                 { "title": "3.0×", "value": "3.0" }
+            ]
+        },
+        {
+            "identifier": "watermark",
+            "type": "menu",
+            "title": "AI 水印",
+            "defaultValue": "auto",
+            "menuValues": [
+                { "title": "默认 (由服务端决定)", "value": "auto" },
+                { "title": "关闭 (需在智谱控制台开通水印管理)", "value": "off" }
             ]
         },
         {

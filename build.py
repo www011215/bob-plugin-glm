@@ -99,20 +99,30 @@ def check():
     print('appcast 校验通过: %s' % tag)
 
 
+USAGE = '''用法:
+  python3 build.py [ocr|tts]                  打包（不写 appcast）
+  python3 build.py <ocr|tts> --appcast "说明"  打包并写入对应插件的 appcast.json
+  python3 build.py --check                    CI 打标签时校验'''
+
+
 def main():
     args = sys.argv[1:]
-    if args[:1] == ['--check']:
+    # 参数拼错不能静默忽略：否则以为写了 appcast，推标签后才在 CI 里失败
+    if args == ['--check']:
         check()
         return
-    targets = [a for a in args[:1] if a in PLUGINS] or list(PLUGINS)
-    rest = args[1:] if args[:1] and args[0] in PLUGINS else args
-    if rest[:1] == ['--appcast']:
-        if len(targets) != 1 or len(rest) < 2 or not rest[1].strip():
-            sys.exit('用法: python3 build.py <ocr|tts> --appcast "更新说明"')
+    if not args:
+        targets, desc = list(PLUGINS), None
+    elif len(args) == 1 and args[0] in PLUGINS:
+        targets, desc = args, None
+    elif len(args) == 3 and args[0] in PLUGINS and args[1] == '--appcast' and args[2].strip():
+        targets, desc = args[:1], args[2].strip()
+    else:
+        sys.exit(USAGE)
     for plugin in targets:
         info, name, sha256 = build(plugin, os.path.join(HERE, 'dist'))
-        if rest[:1] == ['--appcast']:
-            write_appcast(plugin, info, name, sha256, rest[1].strip())
+        if desc:
+            write_appcast(plugin, info, name, sha256, desc)
 
 
 if __name__ == '__main__':

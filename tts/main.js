@@ -1,25 +1,29 @@
 // 智谱 GLM-TTS 语音合成插件（Bob 版）
 // 接口：POST https://open.bigmodel.cn/api/paas/v4/audio/speech（Z.ai 国际站目前没有 TTS）
 // 单次请求文本上限 1024 字符：更长的文本按句切分、逐段合成，再拼成一个 WAV 交给 Bob 播放
-// 配置通过 $option 读取：apiKey / voice / customVoice / speed / volume / languages
+// 配置通过 $option 读取：apiKey / voice / customVoice / speed / volume / watermark / languages
 
 var API_URL = 'https://open.bigmodel.cn/api/paas/v4/audio/speech';
 var MODEL = 'glm-tts';
 var MAX_INPUT_CHARS = 1024;
-var REQUEST_TIMEOUT = 60;
+// 按字计费且逐段串行合成：总长设上限，避免误触长文既费钱又等到 Bob 超时
+var MAX_TOTAL_CHARS = 3000;
+var REQUEST_TIMEOUT = 120;
 
 // 优先在句末断开，其次在逗号 / 空格处，都没有才硬切
 var STRONG_BREAKS = ['\n', '。', '！', '？', '!', '?', '；', ';', '…', '. '];
 var WEAK_BREAKS = ['，', ',', '、', '：', ':', ' '];
 
 function supportLanguages() {
-    // GLM-TTS 以中文为主，支持中英混读；可在设置里改为只读中文，英文交给其他语音服务
-    if ($option.languages === 'zh') return ['zh-Hans', 'zh-Hant'];
+    // GLM-TTS 以中文为主，支持中英混读；可在设置里改为只读中文，英文交给其他语音服务。
+    // Bob 调用这里时 $option 未必已注入，不能直接读
+    var option = (typeof $option !== 'undefined' && $option) || {};
+    if (option.languages === 'zh') return ['zh-Hans', 'zh-Hant'];
     return ['zh-Hans', 'zh-Hant', 'en'];
 }
 
 function pluginTimeoutInterval() {
-    return 120;
+    return 300;
 }
 
 function errorObj(type, message) {
@@ -51,9 +55,10 @@ function splitText(text, max) {
     var rest = String(text);
     while (rest.length > max) {
         var win = rest.slice(0, max);
-        var cut = lastBreak(win, STRONG_BREAKS);
-        if (cut < max / 2) cut = lastBreak(win, WEAK_BREAKS);
-        cut = cut < max / 2 ? max : cut + 1;
+        var strong = lastBreak(win, STRONG_BREAKS);
+        var weak = lastBreak(win, WEAK_BREAKS);
+        var cut = strong >= max / 2 ? strong : (weak >= max / 2 ? weak : Math.max(strong, weak));
+        cut = cut > 0 ? cut + 1 : max;
         // 别把代理对（emoji 等）从中间切开
         var code = rest.charCodeAt(cut - 1);
         if (code >= 0xd800 && code <= 0xdbff) cut -= 1;
@@ -125,7 +130,22 @@ function describeBody(resp) {
             // 二进制无法按 UTF-8 解码时忽略
         }
     }
+    if (body === undefined || body === null || body === '') return '（响应无内容）';
     return String(typeof body === 'string' ? body : JSON.stringify(body)).slice(0, 400);
+}
+
+function buildBody(text) {
+    var body = {
+        model: MODEL,
+        input: text,
+        voice: resolveVoice(),
+        response_format: 'wav',
+        speed: resolveNumber($option.speed, 1.0, 0.5, 2),
+        volume: resolveNumber($option.volume, 1.0, 0.1, 10)
+    };
+    // 关闭 AI 水印需要账号在智谱控制台开通水印管理；默认不传，由服务端决定
+    if ($option.watermark === 'off') body.watermark_enabled = false;
+    return body;
 }
 
 function requestSpeech(text, done) {
@@ -137,14 +157,7 @@ function requestSpeech(text, done) {
             'Content-Type': 'application/json',
             'Authorization': 'Bearer ' + apiKey
         },
-        body: {
-            model: MODEL,
-            input: text,
-            voice: resolveVoice(),
-            response_format: 'wav',
-            speed: resolveNumber($option.speed, 1.0, 0.5, 2),
-            volume: resolveNumber($option.volume, 1.0, 0.1, 10)
-        },
+        body: buildBody(text),
         timeout: REQUEST_TIMEOUT,
         handler: function (resp) {
             var statusCode = resp && resp.response && resp.response.statusCode;
@@ -183,7 +196,8 @@ function synthesize(text, completion) {
     function next(i) {
         if (i >= chunks.length) {
             try {
-                var audio = parts.length === 1 ? parts[0] : concatWav(parts);
+                // 单段也过一遍 concatWav：顺带修正流式头（长度字段为 0）并去掉 data 后的尾段
+                var audio = concatWav(parts);
                 finish({
                     result: {
                         type: 'base64',
@@ -222,6 +236,10 @@ function tts(query, completion) {
     var text = String((query && query.text) || '').trim();
     if (!text) {
         completion({ error: errorObj('param', '待合成文本为空') });
+        return;
+    }
+    if (text.length > MAX_TOTAL_CHARS) {
+        completion({ error: errorObj('param', '文本太长（' + text.length + ' 字）：单次最多朗读 ' + MAX_TOTAL_CHARS + ' 字，请选中较短的段落') });
         return;
     }
     synthesize(text, completion);
