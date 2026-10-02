@@ -1,27 +1,20 @@
 {
-    "identifier": "com.saladict.bob.llm-ocr",
-    "version": "1.1.0",
+    "identifier": "com.www011215.bob.glm-ocr",
+    "version": "1.2.0",
     "category": "ocr",
-    "name": "DeepSeek / GLM 识别",
-    "summary": "使用 DeepSeek / 智谱 GLM（Z.ai / open.bigmodel.cn）/ OpenCode Zen · Go 的 OpenAI 兼容视觉接口识别图片文字，支持普通与 Coding Plan 端点、自定义模型",
-    "author": "MinatoHikari",
-    "homepage": "https://github.com/MinatoHikari/bob-llmtranslation-ocr",
+    "name": "智谱 GLM 识别",
+    "summary": "基于 MinatoHikari/bob-llmtranslation-ocr 修改。使用智谱 GLM（open.bigmodel.cn / Z.ai）识别图片文字，默认专用 OCR 模型 glm-ocr；也支持 DeepSeek、OpenCode Zen · Go 与任意 OpenAI 兼容视觉接口",
+    "author": "www011215（原作 MinatoHikari）",
+    "homepage": "https://github.com/www011215/bob-plugin-glm",
+    "appcast": "https://raw.githubusercontent.com/www011215/bob-plugin-glm/main/ocr/appcast.json",
     "minBobVersion": "0.5.0",
     "options": [
         {
             "identifier": "endpoint",
             "type": "menu",
             "title": "接口",
-            "defaultValue": "zai",
+            "defaultValue": "bigmodel",
             "menuValues": [
-                {
-                    "title": "Z.ai 国际站 · 按量付费",
-                    "value": "zai"
-                },
-                {
-                    "title": "Z.ai 国际站 · Coding Plan",
-                    "value": "zai_coding"
-                },
                 {
                     "title": "智谱中国站 · 按量付费",
                     "value": "bigmodel"
@@ -29,6 +22,14 @@
                 {
                     "title": "智谱中国站 · Coding Plan",
                     "value": "bigmodel_coding"
+                },
+                {
+                    "title": "Z.ai 国际站 · 按量付费",
+                    "value": "zai"
+                },
+                {
+                    "title": "Z.ai 国际站 · Coding Plan",
+                    "value": "zai_coding"
                 },
                 {
                     "title": "OpenCode Zen · 按量付费 (glm-5.3-flash 视觉)",
@@ -68,12 +69,16 @@
         {
             "identifier": "model",
             "type": "text",
-            "title": "模型 (选填，如 glm-4.6v / deepseek-flash)"
+            "title": "模型 (选填，留空按接口默认；智谱 / Z.ai 按量付费默认 glm-ocr)",
+            "textConfig": {
+                "type": "visible",
+                "placeholderText": "如 glm-ocr / glm-5.3-flash / glm-4.6v-flash"
+            }
         },
         {
             "identifier": "thinking",
             "type": "menu",
-            "title": "深度思考 (仅 GLM 模型生效)",
+            "title": "深度思考 (仅 GLM 对话模型生效，glm-ocr 不适用)",
             "defaultValue": "disabled",
             "menuValues": [
                 {
@@ -93,7 +98,7 @@
         {
             "identifier": "ocrPrompt",
             "type": "text",
-            "title": "自定义识别提示词 (选填，留空使用 Free OCR.)",
+            "title": "自定义识别提示词 (选填，留空使用 Free OCR.；glm-ocr 不使用提示词)",
             "textConfig": {
                 "type": "visible",
                 "placeholderText": "Free OCR."
